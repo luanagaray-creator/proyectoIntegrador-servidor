@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  name     String  @db.VarChar(30)
+  password String  @db.VarChar(8)
+  idUser   String  @id @db.VarChar(10)
+  typeUser String  @db.VarChar(5)
+  email    String  @db.VarChar(30)
+  cellPhone Decimal @db.Decimal(9, 0)
+
+  @@map("users")
+}
+
+model Mesage {
+  content        String  @db.VarChar(200)
+  addressee      String  @db.VarChar(30)
+  priorityMesage String  @db.VarChar(5)
+  dateMesage     Decimal @db.Decimal(8, 0)
+  idMesage       String  @id @db.VarChar(10)
+
+  @@map("mesages")
+}
+
+model Notification {
+  priorityNotification String @db.VarChar(5)
+  dateNotification     String @db.VarChar(8)
+  sender               String @db.VarChar(30)
+  idNotification       String @id @db.VarChar(10)
+
+  @@map("notifications")
+}
+
+model Facturation {
+  dateFacturation Decimal @db.Decimal(8, 0)
+  nameFacturation String  @db.VarChar(30)
+  lastDigits      Decimal @db.Decimal(4, 0)
+  senderAddress   String  @db.VarChar(30)
+  paidService     String  @db.VarChar(30)
+  idFacturation   String  @id @db.VarChar(10)
+
+  @@map("facturations")
+}
+
+model PaymentDetails {
+  cardNumber       Decimal @db.Decimal(16, 0)
+  CVC              Decimal @db.Decimal(3, 0)
+  nameCard         Decimal @db.Decimal(30, 0)
+  expirationDate   Decimal @db.Decimal(4, 0)
+  idPaymentDetails String  @id @db.VarChar(10)
+
+  @@map("paymentDetails")
+}
+
+model Subscription {
+  dateSuscription   Decimal @db.Decimal(8, 0)
+  typeSuscription   String  @db.VarChar(10)
+  maturityDate      Decimal @db.Decimal(8, 0)
+  idSubscription    String  @id @db.VarChar(10)
+
+  @@map("subscriptions")
+}
