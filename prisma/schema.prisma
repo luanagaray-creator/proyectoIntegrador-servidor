@@ -7,14 +7,24 @@ datasource db {
 }
 
 model User {
-  name     String  @db.VarChar(30)
-  password String  @db.VarChar(8)
+  name     String  @unique(map: "users_name_unique") @db.VarChar(30)
+  password String  @db.VarChar(255)
   idUser   String  @id @db.VarChar(10)
   typeUser String  @db.VarChar(5)
-  email    String  @db.VarChar(30)
-  cellPhone Decimal @db.Decimal(9, 0)
+  email    String  @unique(map: "users_email_unique") @db.VarChar(30)
+  cellPhone Decimal? @db.Decimal(9, 0)
 
   @@map("users")
+}
+
+model AuthSession {
+  tokenHash String @id @db.Char(64)
+  idUser String @db.VarChar(10)
+  expiresAt DateTime @db.DateTime(0)
+
+  @@index([idUser], map: "auth_sessions_user")
+  @@index([expiresAt], map: "auth_sessions_expiration")
+  @@map("auth_sessions")
 }
 
 model Mesage {
