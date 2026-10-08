@@ -35,7 +35,7 @@ if (require.main === module) {
   const path = require('node:path');
   require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
   const db = createDatabase();
-  db.query('SELECT idUser FROM users LIMIT 0').then(() => db.query('SELECT tokenHash FROM auth_sessions LIMIT 0')).then(() => {
+  db.query('SELECT idUser FROM users LIMIT 0').then(() => db.query('SELECT tokenHash FROM auth_sessions LIMIT 0')).then(() => db.query('SELECT idUser FROM simulated_purchases LIMIT 0')).then(() => {
     const port = Number(process.env.PORT || 3001);
     createApp(createAuthService(db)).listen(port, () => console.log(`Servidor en http://localhost:${port}`));
   }).catch(async err => {

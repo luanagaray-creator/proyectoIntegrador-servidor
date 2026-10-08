@@ -1,14 +1,15 @@
 const { randomBytes, createHash, scrypt: scryptCallback, timingSafeEqual } = require('node:crypto');
 const { promisify } = require('node:util');
 const scrypt = promisify(scryptCallback);
-const SESSION_SECONDS = 7 * 24 * 60 * 60;
+const SESSION_SECONDS = 3 * 60 * 60;
+const planPrices = require('../config/plans.json');
 
 function error(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
 function publicUser(user) {
-  return { idUser: user.idUser, name: user.name, typeUser: user.typeUser, email: user.email, cellPhone: user.cellPhone };
+  return { idUser: user.idUser, name: user.name, typeUser: user.typeUser, email: user.email, cellPhone: user.cellPhone, ...(user.sessionExpiresAt ? { sessionExpiresAt: new Date(user.sessionExpiresAt).toISOString() } : {}) };
 }
 
 async function hashPassword(password) {
@@ -34,12 +35,17 @@ async function verifyPassword(password, stored) {
 const tokenHash = token => createHash('sha256').update(token).digest('hex');
 
 function createAuthService(db) {
+  async function withPurchase(user) {
+    const [purchases] = await db.execute('SELECT plan, method, paidAt, amount FROM simulated_purchases WHERE idUser = ?', [user.idUser]);
+    return { ...publicUser(user), purchase: purchases[0] ? { ...purchases[0], amount: purchases[0].amount == null ? null : Number(purchases[0].amount), simulated: true } : null };
+  }
+
   async function createSession(user) {
     const token = randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + SESSION_SECONDS * 1000);
     await db.execute('DELETE FROM auth_sessions WHERE expiresAt <= UTC_TIMESTAMP()', []);
     await db.execute('INSERT INTO auth_sessions (tokenHash, idUser, expiresAt) VALUES (?, ?, ?)', [tokenHash(token), user.idUser, expiresAt]);
-    return { token, user: publicUser(user) };
+    return { token, user: await withPurchase({ ...user, sessionExpiresAt: expiresAt }) };
   }
 
   async function register(body) {
@@ -76,16 +82,25 @@ function createAuthService(db) {
 
   async function profile(token) {
     if (!token || !/^[a-f0-9]{64}$/.test(token)) throw error(401, 'No hay una sesión activa.');
-    const [users] = await db.execute('SELECT u.* FROM auth_sessions s JOIN users u ON u.idUser = s.idUser WHERE s.tokenHash = ? AND s.expiresAt > UTC_TIMESTAMP()', [tokenHash(token)]);
+    const [users] = await db.execute('SELECT u.*, s.expiresAt AS sessionExpiresAt FROM auth_sessions s JOIN users u ON u.idUser = s.idUser WHERE s.tokenHash = ? AND s.expiresAt > UTC_TIMESTAMP()', [tokenHash(token)]);
     if (!users[0]) throw error(401, 'La sesión venció. Iniciá sesión nuevamente.');
-    return publicUser(users[0]);
+    return withPurchase(users[0]);
+  }
+
+  async function simulatePurchase(token, body) {
+    const user = await profile(token);
+    if (!Object.hasOwn(planPrices, body.plan)) throw error(400, 'Seleccioná un paquete válido.');
+    if (!['Visa', 'Mercado Pago', 'Mastercard'].includes(body.method)) throw error(400, 'Seleccioná un método de pago válido.');
+    // Simulación: no se reciben, almacenan ni cobran datos de tarjetas.
+    await db.execute('INSERT INTO simulated_purchases (idUser, plan, method, amount, paidAt) VALUES (?, ?, ?, ?, UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE plan = VALUES(plan), method = VALUES(method), amount = VALUES(amount), paidAt = UTC_TIMESTAMP()', [user.idUser, body.plan, body.method, planPrices[body.plan]]);
+    return withPurchase(user);
   }
 
   async function logout(token) {
     if (token && /^[a-f0-9]{64}$/.test(token)) await db.execute('DELETE FROM auth_sessions WHERE tokenHash = ?', [tokenHash(token)]);
   }
 
-  return { register, login, profile, logout };
+  return { register, login, profile, logout, simulatePurchase };
 }
 
 module.exports = { createAuthService, hashPassword, verifyPassword, SESSION_SECONDS };

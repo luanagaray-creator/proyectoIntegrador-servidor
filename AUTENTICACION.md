@@ -1,5 +1,7 @@
 # Registro y sesión
 
+Las sesiones duran 3 horas desde el registro o el login; navegar o consultar el perfil no renueva ese plazo. La cookie y MySQL usan el mismo vencimiento. El perfil incluye `sessionExpiresAt` para que el front cierre la sesión y muestre el login al vencer, incluso con la página abierta. Ejecutar `node scripts/update-session-duration.js` adapta las sesiones anteriores de 7 días conservando sus primeras 3 horas; las cuentas y sus compras se mantienen.
+
 El frontend usa la API Express del puerto 3001. Los datos se guardan en MySQL
 mediante `mysql2`; los endpoints de autenticación no utilizan el cliente SQLite
 antiguo de `prisma/client.js`. El esquema Prisma refleja los campos de autenticación.
@@ -62,3 +64,6 @@ Ejecutá `npm run mail:verify` para comprobar la conexión SMTP sin enviar mensa
 y reiniciá el backend después de guardar `.env`. Para otro proveedor, configurá
 su host, puerto y credenciales SMTP. No se guardan credenciales de correo en el
 frontend ni se devuelven a los clientes de la API.
+# Pagos simulados
+
+Ejecutar `npm run db:auth` también crea `simulated_purchases`, sin modificar las tablas de facturación o tarjetas. `POST /api/payments/simulate` exige una cookie de sesión válida y recibe `plan` (Small Plan, Medium Plan o Large Plan) y `method` (Visa, Mercado Pago o Mastercard). No procesa cobros ni recibe datos de tarjetas. Guarda el último paquete simulado de cada cuenta y lo devuelve en `user.purchase` al registrar, iniciar sesión o consultar el perfil. Los importes simulados son Small Plan: 250, Medium Plan: 500 y Large Plan: 750, definidos en config/plans.json. El backend calcula y guarda amount sin aceptar importes del cliente. La moneda y los vencimientos están pendientes de definición. Las compras anteriores sin importe se conservan con amount NULL.
