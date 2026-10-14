@@ -34,12 +34,12 @@ function createWelcomeMailer({ env = process.env, transport } = {}) {
     return smtp;
   }
 
-  async function sendWelcomeEmail(user) {
+  async function sendMessage(email, subject, text) {
     const result = await getTransport().sendMail({
       from: { name: 'El equipo de Thotem', address: env.SMTP_USER },
-      to: user.email,
-      subject: WELCOME_SUBJECT,
-      text: WELCOME_TEXT,
+      to: email,
+      subject,
+      text,
     });
     if (result.rejected?.length || !result.accepted?.length) {
       throw Object.assign(new Error('El servidor de correo no aceptó el destinatario.'), { code: 'MAIL_RECIPIENT_REJECTED' });
@@ -47,7 +47,9 @@ function createWelcomeMailer({ env = process.env, transport } = {}) {
     return result.messageId;
   }
 
-  return { sendWelcomeEmail, verify: async () => getTransport().verify() };
+  const sendWelcomeEmail = user => sendMessage(user.email, WELCOME_SUBJECT, WELCOME_TEXT);
+  const sendRecoveryEmail = ({ email, code }) => sendMessage(email, 'Recuperá tu contraseña de Thotem', `Tu código de recuperación es: ${code}\n\nVence en 15 minutos. No compartas este código.\nSi no solicitaste este cambio, podés ignorar este correo.\n\nSaludos cordiales,\nEl equipo de Thotem`);
+  return { sendWelcomeEmail, sendRecoveryEmail, verify: async () => getTransport().verify() };
 }
 
 module.exports = { createWelcomeMailer, WELCOME_SUBJECT, WELCOME_TEXT };

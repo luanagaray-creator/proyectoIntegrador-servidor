@@ -8,15 +8,18 @@ const { createApp } = require('../index');
 function memoryDatabase() {
   const users = [];
   const sessions = new Map();
+  const purchases = new Map();
   const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
   return {
     users, sessions,
     async execute(sql, values) {
+      if (sql.startsWith('SELECT plan, method, paidAt, amount FROM simulated_purchases')) return [purchases.has(values[0]) ? [purchases.get(values[0])] : []];
+      if (sql.startsWith('INSERT INTO simulated_purchases')) { purchases.set(values[0], { plan: values[1], method: values[2], amount: values[3], paidAt: new Date().toISOString() }); return [{}]; }
       if (sql.startsWith('SELECT idUser FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
       if (sql.startsWith('INSERT INTO users')) {
-        const [idUser, name, email, password, typeUser, cellPhone] = values;
+        const [idUser, name, email, password, typeUser, cellPhone, groupCode] = values;
         if (users.some(u => same(u.name, name) || same(u.email, email))) throw Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' });
-        users.push({ idUser, name, email, password, typeUser, cellPhone });
+        users.push({ idUser, name, email, password, typeUser, cellPhone, groupCode });
         return [{}];
       }
       if (sql.startsWith('SELECT * FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
@@ -26,9 +29,9 @@ function memoryDatabase() {
         return [{}];
       }
       if (sql.startsWith('INSERT INTO auth_sessions')) { sessions.set(values[0], { idUser: values[1], expiresAt: values[2] }); return [{}]; }
-      if (sql.startsWith('SELECT u.* FROM auth_sessions')) {
+      if (sql.startsWith('SELECT u.*, s.expiresAt')) {
         const session = sessions.get(values[0]);
-        return [session && session.expiresAt > new Date() ? users.filter(u => u.idUser === session.idUser) : []];
+        return [session && session.expiresAt > new Date() ? users.filter(u => u.idUser === session.idUser).map(u => ({ ...u, sessionExpiresAt: session.expiresAt })) : []];
       }
       if (sql.startsWith('DELETE FROM auth_sessions WHERE tokenHash')) { sessions.delete(values[0]); return [{}]; }
       throw new Error(`Consulta inesperada: ${sql}`);
@@ -54,12 +57,37 @@ async function withServer(run, sendWelcomeEmail = async () => {}) {
   finally { await new Promise(resolve => server.close(resolve)); }
 }
 
-const account = { name: 'Ana', email: 'ana@example.com', password: 'clave_segura' };
+const account = { name: 'Ana', email: 'ana@example.com', password: 'clave_segura', groupCode: '3ro TIC' };
+
+test('pago simulado exige sesión, valida paquete y persiste por usuario al volver a iniciar sesión', () => withServer(async ({ request }) => {
+  const purchase = { plan: 'Small Plan', method: 'Visa' };
+  assert.equal((await request('/payments/simulate', purchase)).status, 401);
+  const registered = await request('/users/register', account);
+  assert.equal(registered.data.user.purchase, null);
+  const cookie = registered.cookie.split(';')[0];
+  assert.equal((await request('/payments/simulate', { ...purchase, plan: 'otro' }, cookie)).status, 400);
+  assert.equal((await request('/payments/simulate', { ...purchase, method: 'otro' }, cookie)).status, 400);
+  for (const [plan, method] of [['Small Plan', 'Visa'], ['Medium Plan', 'Mercado Pago'], ['Large Plan', 'Mastercard']]) {
+    const paid = await request('/payments/simulate', { plan, method, amount: 1 }, cookie);
+    assert.equal(paid.status, 200);
+    assert.equal(paid.data.user.purchase.plan, plan);
+    assert.equal(paid.data.user.purchase.method, method);
+    assert.equal(paid.data.user.purchase.simulated, true);
+    assert.equal(paid.data.user.purchase.amount, { 'Small Plan': 250, 'Medium Plan': 500, 'Large Plan': 750 }[plan]);
+  }
+  await request('/auth/logout', {}, cookie);
+  assert.equal((await request('/payments/simulate', purchase, cookie)).status, 401);
+  const login = await request('/auth/login', account);
+  assert.equal(login.data.user.purchase.plan, 'Large Plan');
+  const other = await request('/users/register', { name: 'Otra', email: 'otra@example.com', password: account.password, groupCode: '1ro ADM' });
+  assert.equal(other.data.user.purchase, null);
+}));
 
 test('registro guarda contraseña cifrada, genera id válido y no permite elegir rol admin', () => withServer(async ({ request, db }) => {
   const result = await request('/users/register', { ...account, typeUser: 'admin' });
   assert.equal(result.status, 201);
   assert.equal(result.data.user.typeUser, 'user');
+  assert.equal(result.data.user.groupCode, '3ro TIC');
   assert.match(result.data.user.idUser, /^[a-f0-9]{10}$/);
   assert.equal(result.data.user.password, undefined);
   assert.match(db.users[0].password, /^scrypt:/);
@@ -76,7 +104,9 @@ test('login restaura el perfil con cookie y datos de sesión sin exponer contras
   assert.equal(login.status, 200);
   assert.match(login.cookie, /HttpOnly/);
   assert.match(login.cookie, /SameSite=Lax/);
-  assert.match(login.cookie, /Max-Age=604800/);
+  assert.match(login.cookie, /Max-Age=10800/);
+  const remaining = Date.parse(login.data.user.sessionExpiresAt) - Date.now();
+  assert.ok(remaining > 10790000 && remaining <= 10800000);
   const cookie = login.cookie.split(';')[0];
   const profile = await request('/users/profile', undefined, cookie);
   assert.equal(profile.status, 200);
@@ -122,6 +152,8 @@ test('registro valida campos y rechaza nombres o emails duplicados', () => withS
   assert.equal((await request('/users/register', { ...account, password: '123' })).status, 400);
   assert.equal((await request('/users/register', { ...account, email: 'invalido' })).status, 400);
   assert.equal((await request('/users/register', { ...account, name: 'a'.repeat(31) })).status, 400);
+  assert.equal((await request('/users/register', { ...account, groupCode: '4to TIC' })).status, 400);
+  assert.equal((await request('/users/register', { ...account, groupCode: undefined })).status, 400);
   await request('/users/register', account);
   assert.equal((await request('/users/register', { ...account, name: 'ANA', email: 'otra@example.com' })).status, 409);
   assert.equal((await request('/users/register', { ...account, name: 'Otro' })).status, 409);

@@ -20,6 +20,18 @@ test('avisa cuando faltan credenciales de envío', async () => {
   await assert.rejects(createWelcomeMailer({ env: {} }).verify(), { code: 'MAIL_NOT_CONFIGURED' });
 });
 
+test('correo de recuperación incluye código y plazo, sin incluir contraseñas', async () => {
+  let message;
+  const mailer = createWelcomeMailer({ env: { SMTP_USER: 'thotem@example.com' }, transport: {
+    sendMail: async value => { message = value; return { accepted: [value.to], messageId: 'reset' }; },
+  } });
+  await mailer.sendRecoveryEmail({ email: 'persona@gmail.com', code: '012345' });
+  assert.equal(message.to, 'persona@gmail.com');
+  assert.match(message.text, /012345/);
+  assert.match(message.text, /15 minutos/);
+  assert.match(message.text, /Si no solicitaste/);
+});
+
 test('no presenta como enviado un correo rechazado por SMTP', async () => {
   const mailer = createWelcomeMailer({ env: { SMTP_USER: 'thotem@example.com' }, transport: {
     sendMail: async () => ({ accepted: [], rejected: ['persona@gmail.com'] }),

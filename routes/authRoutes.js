@@ -43,6 +43,9 @@ function createAuthRouter(service, sendWelcomeEmail) {
   router.get('/users/profile', async (req, res) => {
     res.json({ user: await service.profile(readSession(req)) });
   });
+  router.post('/payments/simulate', async (req, res) => {
+    res.json({ user: await service.simulatePurchase(readSession(req), req.body || {}) });
+  });
   router.post('/auth/logout', async (req, res) => {
     await service.logout(readSession(req));
     res.clearCookie(COOKIE_NAME, cookieOptions);
@@ -51,4 +54,4 @@ function createAuthRouter(service, sendWelcomeEmail) {
   return router;
 }
 
-module.exports = { createAuthRouter };
+module.exports = { createAuthRouter, readSession };

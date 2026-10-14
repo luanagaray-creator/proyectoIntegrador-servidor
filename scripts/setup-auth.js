@@ -17,7 +17,11 @@ async function setup() {
       if (!unique) await db.query(`ALTER TABLE users ADD UNIQUE KEY users_${column}_unique (${column})`);
     }
     await db.query('CREATE TABLE IF NOT EXISTS auth_sessions (tokenHash CHAR(64) PRIMARY KEY, idUser VARCHAR(10) NOT NULL, expiresAt DATETIME NOT NULL, INDEX auth_sessions_user (idUser), INDEX auth_sessions_expiration (expiresAt))');
-    console.log('Autenticación preparada en proyectoIntegrador. Los usuarios existentes se conservaron.');
+    await db.query('CREATE TABLE IF NOT EXISTS simulated_purchases (idUser VARCHAR(10) PRIMARY KEY, plan VARCHAR(30) NOT NULL, method VARCHAR(20) NOT NULL, paidAt DATETIME NOT NULL)');
+    const [purchaseColumns] = await db.query('SHOW COLUMNS FROM simulated_purchases');
+    await db.query('CREATE TABLE IF NOT EXISTS password_resets (id CHAR(32) PRIMARY KEY, idUser VARCHAR(10) NOT NULL UNIQUE, codeHash VARCHAR(255) NULL, tokenHash CHAR(64) NULL UNIQUE, expiresAt DATETIME NOT NULL, attempts INT NOT NULL DEFAULT 0, INDEX password_resets_expiration (expiresAt))');
+    if (!purchaseColumns.some(column => column.Field === 'amount')) await db.query('ALTER TABLE simulated_purchases ADD COLUMN amount DECIMAL(10,2) NULL');
+    console.log('Autenticación y pagos simulados preparados en proyectoIntegrador. Los usuarios existentes se conservaron.');
   } finally {
     await db.end();
   }

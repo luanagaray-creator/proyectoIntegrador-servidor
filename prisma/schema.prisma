@@ -11,6 +11,7 @@ model User {
   password String  @db.VarChar(255)
   idUser   String  @id @db.VarChar(10)
   typeUser String  @db.VarChar(5)
+  groupCode String? @db.VarChar(7)
   email    String  @unique(map: "users_email_unique") @db.VarChar(30)
   cellPhone Decimal? @db.Decimal(9, 0)
 
@@ -28,13 +29,58 @@ model AuthSession {
 }
 
 model Mesage {
-  content        String  @db.VarChar(200)
+  content        String  @db.Text
   addressee      String  @db.VarChar(30)
   priorityMesage String  @db.VarChar(5)
   dateMesage     Decimal @db.Decimal(8, 0)
   idMesage       String  @id @db.VarChar(10)
+  threadId String? @db.Char(10)
+  senderId String? @db.VarChar(10)
+  recipientId String? @db.VarChar(10)
+  sentAt DateTime? @db.DateTime(3)
+  sequence BigInt @unique @default(autoincrement()) @db.UnsignedBigInt
+
+  @@index([threadId, sequence], map: "mesages_thread_sequence")
 
   @@map("mesages")
+}
+
+model MessageThread {
+  id String @id @db.Char(10)
+  subject String @db.VarChar(120)
+  senderId String @db.VarChar(10)
+  recipientId String @db.VarChar(10)
+  createdAt DateTime @db.DateTime(3)
+
+  @@index([senderId], map: "message_threads_sender")
+  @@index([recipientId], map: "message_threads_recipient")
+  @@map("message_threads")
+}
+
+model MessageStar {
+  idUser String @db.VarChar(10)
+  threadId String @db.Char(10)
+
+  @@id([idUser, threadId])
+  @@index([threadId], map: "message_stars_thread")
+  @@map("message_stars")
+}
+
+model SchoolGroup {
+  code String @id @db.VarChar(7)
+
+  @@map("school_groups")
+}
+
+model GroupChatMessage {
+  id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
+  groupCode String @db.VarChar(7)
+  senderId String @db.VarChar(10)
+  content String @db.Text
+  sentAt DateTime @db.DateTime(3)
+
+  @@index([groupCode, id], map: "group_chat_group_id")
+  @@map("group_chat_messages")
 }
 
 model Notification {
