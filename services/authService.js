@@ -3,13 +3,14 @@ const { promisify } = require('node:util');
 const scrypt = promisify(scryptCallback);
 const SESSION_SECONDS = 3 * 60 * 60;
 const planPrices = require('../config/plans.json');
+const groups = require('../config/groups.json');
 
 function error(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
 function publicUser(user) {
-  return { idUser: user.idUser, name: user.name, typeUser: user.typeUser, email: user.email, cellPhone: user.cellPhone, ...(user.sessionExpiresAt ? { sessionExpiresAt: new Date(user.sessionExpiresAt).toISOString() } : {}) };
+  return { idUser: user.idUser, name: user.name, typeUser: user.typeUser, groupCode: user.groupCode || null, email: user.email, cellPhone: user.cellPhone, ...(user.sessionExpiresAt ? { sessionExpiresAt: new Date(user.sessionExpiresAt).toISOString() } : {}) };
 }
 
 async function hashPassword(password) {
@@ -55,12 +56,13 @@ function createAuthService(db) {
     if (!name || name.length > 30 || name.includes('@')) throw error(400, 'El nombre debe tener entre 1 y 30 caracteres y no incluir @.');
     if (email.length > 30 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw error(400, 'Ingresá un email válido de hasta 30 caracteres.');
     if (typeof password !== 'string' || password.length < 6 || password.length > 128) throw error(400, 'La contraseña debe tener entre 6 y 128 caracteres.');
+    if (!groups.includes(body.groupCode)) throw error(400, 'Seleccioná uno de los seis grupos disponibles.');
     const [existing] = await db.execute('SELECT idUser FROM users WHERE name = ? OR email = ?', [name, email]);
     if (existing.length) throw error(409, 'El nombre de usuario o el email ya están registrados.');
-    const user = { idUser: randomBytes(5).toString('hex'), name, email, typeUser: 'user', cellPhone: null };
+    const user = { idUser: randomBytes(5).toString('hex'), name, email, typeUser: 'user', groupCode: body.groupCode, cellPhone: null };
     const passwordHash = await hashPassword(password);
     try {
-      await db.execute('INSERT INTO users (idUser, name, email, password, typeUser, cellPhone) VALUES (?, ?, ?, ?, ?, ?)', [user.idUser, name, email, passwordHash, user.typeUser, null]);
+      await db.execute('INSERT INTO users (idUser, name, email, password, typeUser, cellPhone, groupCode) VALUES (?, ?, ?, ?, ?, ?, ?)', [user.idUser, name, email, passwordHash, user.typeUser, null, user.groupCode]);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') throw error(409, 'El nombre de usuario o el email ya están registrados.');
       throw err;

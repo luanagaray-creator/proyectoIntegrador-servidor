@@ -11,7 +11,7 @@ async function verify() {
   let server;
   let idUser;
   const suffix = require('node:crypto').randomBytes(5).toString('hex');
-  const account = { name: `prueba_${suffix}`, email: `${suffix}@prueba.local`, password: require('node:crypto').randomBytes(16).toString('hex') };
+  const account = { name: `prueba_${suffix}`, email: `${suffix}@prueba.local`, password: require('node:crypto').randomBytes(16).toString('hex'), groupCode: '3ro TIC' };
   try {
     const [[database]] = await db.query('SELECT DATABASE() AS name');
     assert.equal(database.name.toLowerCase(), 'proyectointegrador');

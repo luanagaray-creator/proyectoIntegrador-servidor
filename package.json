@@ -5,9 +5,11 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test tests/auth.test.js tests/mail.test.js",
+    "test": "node --test tests/auth.test.js tests/mail.test.js tests/password-reset-mail.test.js",
     "mail:verify": "node scripts/verify-mail.js",
-    "db:auth": "node scripts/setup-auth.js"
+    "db:auth": "node scripts/setup-auth.js",
+    "db:messages": "node scripts/setup-messages.js",
+    "db:groups": "node scripts/setup-groups.js"
   },
   "keywords": [],
   "author": "",

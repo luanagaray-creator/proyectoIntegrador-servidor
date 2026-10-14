@@ -54,4 +54,4 @@ function createAuthRouter(service, sendWelcomeEmail) {
   return router;
 }
 
-module.exports = { createAuthRouter };
+module.exports = { createAuthRouter, readSession };

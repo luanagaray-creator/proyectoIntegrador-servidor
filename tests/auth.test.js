@@ -17,9 +17,9 @@ function memoryDatabase() {
       if (sql.startsWith('INSERT INTO simulated_purchases')) { purchases.set(values[0], { plan: values[1], method: values[2], amount: values[3], paidAt: new Date().toISOString() }); return [{}]; }
       if (sql.startsWith('SELECT idUser FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
       if (sql.startsWith('INSERT INTO users')) {
-        const [idUser, name, email, password, typeUser, cellPhone] = values;
+        const [idUser, name, email, password, typeUser, cellPhone, groupCode] = values;
         if (users.some(u => same(u.name, name) || same(u.email, email))) throw Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' });
-        users.push({ idUser, name, email, password, typeUser, cellPhone });
+        users.push({ idUser, name, email, password, typeUser, cellPhone, groupCode });
         return [{}];
       }
       if (sql.startsWith('SELECT * FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
@@ -57,7 +57,7 @@ async function withServer(run, sendWelcomeEmail = async () => {}) {
   finally { await new Promise(resolve => server.close(resolve)); }
 }
 
-const account = { name: 'Ana', email: 'ana@example.com', password: 'clave_segura' };
+const account = { name: 'Ana', email: 'ana@example.com', password: 'clave_segura', groupCode: '3ro TIC' };
 
 test('pago simulado exige sesión, valida paquete y persiste por usuario al volver a iniciar sesión', () => withServer(async ({ request }) => {
   const purchase = { plan: 'Small Plan', method: 'Visa' };
@@ -79,7 +79,7 @@ test('pago simulado exige sesión, valida paquete y persiste por usuario al volv
   assert.equal((await request('/payments/simulate', purchase, cookie)).status, 401);
   const login = await request('/auth/login', account);
   assert.equal(login.data.user.purchase.plan, 'Large Plan');
-  const other = await request('/users/register', { name: 'Otra', email: 'otra@example.com', password: account.password });
+  const other = await request('/users/register', { name: 'Otra', email: 'otra@example.com', password: account.password, groupCode: '1ro ADM' });
   assert.equal(other.data.user.purchase, null);
 }));
 
@@ -87,6 +87,7 @@ test('registro guarda contraseña cifrada, genera id válido y no permite elegir
   const result = await request('/users/register', { ...account, typeUser: 'admin' });
   assert.equal(result.status, 201);
   assert.equal(result.data.user.typeUser, 'user');
+  assert.equal(result.data.user.groupCode, '3ro TIC');
   assert.match(result.data.user.idUser, /^[a-f0-9]{10}$/);
   assert.equal(result.data.user.password, undefined);
   assert.match(db.users[0].password, /^scrypt:/);
@@ -151,6 +152,8 @@ test('registro valida campos y rechaza nombres o emails duplicados', () => withS
   assert.equal((await request('/users/register', { ...account, password: '123' })).status, 400);
   assert.equal((await request('/users/register', { ...account, email: 'invalido' })).status, 400);
   assert.equal((await request('/users/register', { ...account, name: 'a'.repeat(31) })).status, 400);
+  assert.equal((await request('/users/register', { ...account, groupCode: '4to TIC' })).status, 400);
+  assert.equal((await request('/users/register', { ...account, groupCode: undefined })).status, 400);
   await request('/users/register', account);
   assert.equal((await request('/users/register', { ...account, name: 'ANA', email: 'otra@example.com' })).status, 409);
   assert.equal((await request('/users/register', { ...account, name: 'Otro' })).status, 409);

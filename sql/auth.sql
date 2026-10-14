@@ -1,5 +1,14 @@
 -- Ejecutar sobre la base del proyecto, sin eliminar usuarios ni otras tablas.
 USE proyectoIntegrador;
+CREATE TABLE IF NOT EXISTS password_resets (
+  id CHAR(32) PRIMARY KEY,
+  idUser VARCHAR(10) NOT NULL UNIQUE,
+  codeHash VARCHAR(255) NULL,
+  tokenHash CHAR(64) NULL UNIQUE,
+  expiresAt DATETIME NOT NULL,
+  attempts INT NOT NULL DEFAULT 0,
+  INDEX password_resets_expiration (expiresAt)
+);
 CREATE TABLE IF NOT EXISTS simulated_purchases (
   idUser VARCHAR(10) PRIMARY KEY,
   plan VARCHAR(30) NOT NULL,

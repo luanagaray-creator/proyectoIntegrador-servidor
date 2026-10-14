@@ -1,5 +1,29 @@
 # Registro y sesión
 
+## Chat por curso
+
+`npm run db:groups` crea los seis grupos (1ro/2do/3ro TIC y 1ro/2do/3ro ADM), agrega `users.groupCode` y prepara `group_chat_messages`. El grupo es obligatorio para nuevas cuentas. Las cuentas anteriores sin grupo pueden elegirlo una sola vez con `POST /api/users/group` (groupCode); repetir el mismo grupo es válido, pero cambiar a otro devuelve 409. La pertenencia al curso es independiente de typeUser, que conserva el rol de usuario/admin.
+
+`GET /api/group-chat` devuelve solo el grupo y los mensajes de la cuenta autenticada. `POST /api/group-chat/messages` recibe content (hasta 5000 caracteres). El grupo y el remitente se obtienen siempre desde la sesión; los valores adicionales enviados por el cliente no cambian el destino ni la identidad. El chat requiere pago simulado y actualiza los mensajes cada 5 segundos. No usa SMTP.
+
+Verificación: `node scripts/verify-group-chat.js`. Comprueba los seis grupos aislados, usuarios del mismo grupo, sesión, validación y elección única. Elimina sus cuentas y mensajes temporales al finalizar.
+
+## Mensajería interna
+
+La bandeja admite `GET /api/messages?filter=all|sent|received|starred`. En enviados/recibidos se muestra una conversación por fila, con el último mensaje que el usuario envió/recibió; una conversación con intercambio en ambas direcciones puede aparecer en los dos filtros. `POST /api/messages/:id/star` recibe starred (booleano) y marca o desmarca solo para el usuario autenticado. Las estrellas se conservan en `message_stars`, creada con `npm run db:messages`.
+
+Ejecutar `npm run db:messages` prepara `message_threads` y amplía `mesages` conservando sus datos originales. Los mensajes antiguos sin remitente/destinatario identificados se conservan, pero no se exponen a cuentas ajenas. La mensajería requiere una sesión válida y un paquete simulado. El destinatario puede indicarse por su nombre de usuario o email registrado. No se envían correos: la entrega ocurre dentro de Thotem.
+
+`GET /api/messages` devuelve las conversaciones del usuario. `POST /api/messages` recibe recipient, subject (hasta 120 caracteres) y content (hasta 5000 caracteres). `GET /api/messages/:id` carga el historial y `POST /api/messages/:id/replies` recibe content y responde al otro participante. El servidor obtiene el remitente desde la sesión y comprueba los participantes antes de leer o responder. El front actualiza la bandeja y la conversación cada 5 segundos mientras la pestaña está visible, y al recuperar el foco. La URL de la conversación permite recargar sin perder el historial.
+
+Validación con cuentas temporales: `node scripts/verify-messages.js`. No modifica usuarios reales ni manda correos.
+
+## Recuperación de contraseña
+
+`npm run db:auth` crea también `password_resets`. El flujo usa `POST /api/auth/password-reset/request` con email, `/verify` con requestId y código de 6 dígitos, y `/confirm` con resetToken y password. El código se envía por el mismo SMTP de bienvenida, vence a los 15 minutos y admite 5 intentos incorrectos. Solicitar otro código invalida el anterior. Verificarlo genera una autorización de un solo uso que vence en 10 minutos. Los códigos se guardan como hashes scrypt y las autorizaciones como hashes SHA-256. Al cambiar la contraseña se eliminan las sesiones de esa cuenta, conservando su pago simulado. La respuesta de solicitud no revela si un email existe. Se permiten hasta 5 solicitudes por IP cada 15 minutos. La recuperación comprueba SMTP antes de generar el código y espera a que Gmail acepte el correo antes de responder. Si la conexión o el envío fallan, devuelve 503 y el front muestra el error sin avanzar a la pantalla del código. No hay reintentos automáticos. La red debe permitir SMTP saliente a smtp.gmail.com (465 con TLS o 587 con STARTTLS); verify-mail.js --network permite comprobarlo sin enviar credenciales ni mensajes.
+
+Validación del flujo con MySQL: `node scripts/verify-password-reset.js`. Crea y elimina una cuenta temporal, usa un remitente de prueba en memoria y no envía correos reales.
+
 Las sesiones duran 3 horas desde el registro o el login; navegar o consultar el perfil no renueva ese plazo. La cookie y MySQL usan el mismo vencimiento. El perfil incluye `sessionExpiresAt` para que el front cierre la sesión y muestre el login al vencer, incluso con la página abierta. Ejecutar `node scripts/update-session-duration.js` adapta las sesiones anteriores de 7 días conservando sus primeras 3 horas; las cuentas y sus compras se mantienen.
 
 El frontend usa la API Express del puerto 3001. Los datos se guardan en MySQL
