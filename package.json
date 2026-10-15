@@ -9,7 +9,9 @@
     "mail:verify": "node scripts/verify-mail.js",
     "db:auth": "node scripts/setup-auth.js",
     "db:messages": "node scripts/setup-messages.js",
-    "db:groups": "node scripts/setup-groups.js"
+    "db:groups": "node scripts/setup-groups.js",
+    "db:admin-plans": "node scripts/setup-admin-plans.js",
+    "db:institutions": "node scripts/setup-institutions.js"
   },
   "keywords": [],
   "author": "",

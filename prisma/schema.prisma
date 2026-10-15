@@ -10,7 +10,7 @@ model User {
   name     String  @unique(map: "users_name_unique") @db.VarChar(30)
   password String  @db.VarChar(255)
   idUser   String  @id @db.VarChar(10)
-  typeUser String  @db.VarChar(5)
+  typeUser String  @db.VarChar(12)
   groupCode String? @db.VarChar(7)
   email    String  @unique(map: "users_email_unique") @db.VarChar(30)
   cellPhone Decimal? @db.Decimal(9, 0)
@@ -46,6 +46,9 @@ model Mesage {
 }
 
 model MessageThread {
+  spaceId String? @db.Char(10)
+
+  @@index([spaceId], map: "message_thread_space")
   id String @id @db.Char(10)
   subject String @db.VarChar(120)
   senderId String @db.VarChar(10)
@@ -72,7 +75,19 @@ model SchoolGroup {
   @@map("school_groups")
 }
 
+model AdminPlanGroup {
+  adminId String @db.VarChar(10)
+  groupCode String @db.VarChar(7)
+
+  @@id([adminId, groupCode])
+  @@index([groupCode], map: "admin_plan_groups_group")
+  @@map("admin_plan_groups")
+}
+
 model GroupChatMessage {
+  spaceId String? @db.Char(10)
+
+  @@index([spaceId, id], map: "group_chat_space_id")
   id BigInt @id @default(autoincrement()) @db.UnsignedBigInt
   groupCode String @db.VarChar(7)
   senderId String @db.VarChar(10)
@@ -120,4 +135,39 @@ model Subscription {
   idSubscription    String  @id @db.VarChar(10)
 
   @@map("subscriptions")
+}
+
+model Institution {
+  id String @id @db.Char(10)
+  name String @unique @db.VarChar(80)
+  @@map("institutions")
+}
+model CommunicationSpace {
+  id String @id @db.Char(10)
+  institutionId String @db.Char(10)
+  name String @db.VarChar(30)
+  @@unique([institutionId, name], map: "institution_space")
+  @@map("communication_spaces")
+}
+model SpaceAdministrator {
+  spaceId String @db.Char(10)
+  idUser String @db.VarChar(10)
+  @@id([spaceId, idUser])
+  @@index([idUser], map: "space_admin_user")
+  @@map("space_administrators")
+}
+model SpaceMembership {
+  spaceId String @db.Char(10)
+  idUser String @db.VarChar(10)
+  grantedBy String @db.VarChar(10)
+  @@id([spaceId, idUser])
+  @@index([idUser], map: "space_member_user")
+  @@map("space_memberships")
+}
+model AdminPlanSpace {
+  adminId String @db.VarChar(10)
+  spaceId String @db.Char(10)
+  @@id([adminId, spaceId])
+  @@index([spaceId], map: "plan_space")
+  @@map("admin_plan_spaces")
 }

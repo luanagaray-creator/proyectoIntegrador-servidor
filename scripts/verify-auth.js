@@ -42,25 +42,22 @@ async function verify() {
     assert.equal(login.status, 200);
     assert.match(login.cookie, /HttpOnly/);
     const cookie = login.cookie.split(';')[0];
-    for (const [plan, method] of [['Small Plan', 'Visa'], ['Medium Plan', 'Mercado Pago'], ['Large Plan', 'Mastercard']]) {
-      const paid = await request('/payments/simulate', { plan, method }, cookie);
-      assert.equal(paid.status, 200);
-      assert.equal(paid.data.user.purchase.plan, plan);
-      assert.equal(paid.data.user.purchase.amount, { 'Small Plan': 250, 'Medium Plan': 500, 'Large Plan': 750 }[plan]);
-    }
+    assert.equal((await request('/payments/simulate', { plan: 'Small Plan', method: 'Visa', spaceIds: [] }, cookie)).status, 403);
     const profile = await request('/users/profile', undefined, cookie);
     assert.equal(profile.status, 200);
     assert.equal(profile.data.user.idUser, idUser);
     assert.equal(profile.data.user.name, account.name);
     const restored = await createAuthService(db).profile(cookie.split('=')[1]);
     assert.equal(restored.idUser, idUser);
-    assert.equal(restored.purchase.plan, 'Large Plan');
+    assert.equal(restored.purchase, null);
+    assert.equal(restored.hasAccess, false);
     assert.equal((await request('/auth/logout', {}, cookie)).status, 200);
     assert.equal((await request('/users/profile', undefined, cookie)).status, 401);
     console.log('MySQL: registro, contraseña cifrada, duplicados, login, perfil persistente y logout verificados.');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (idUser) {
+      await db.execute('DELETE FROM admin_plan_groups WHERE adminId = ?', [idUser]);
       await db.execute('DELETE FROM simulated_purchases WHERE idUser = ?', [idUser]);
       await db.execute('DELETE FROM auth_sessions WHERE idUser = ?', [idUser]);
       await db.execute('DELETE FROM users WHERE idUser = ? AND name = ?', [idUser, account.name]);
