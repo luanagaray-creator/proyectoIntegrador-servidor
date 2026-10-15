@@ -10,8 +10,10 @@ const { createMessageService } = require('./services/messageService');
 const { createMessageRouter } = require('./routes/messageInboxRoutes');
 const { createGroupChatService } = require('./services/groupChatService');
 const { createGroupChatRouter } = require('./routes/groupChatRoutes');
+const { createInstitutionService } = require('./services/institutionService');
+const { createInstitutionRouter } = require('./routes/institutionRoutes');
 
-function createApp(authService, { sendWelcomeEmail = createWelcomeMailer().sendWelcomeEmail, resetService, messageService, groupChatService, sendRecoveryEmail = createWelcomeMailer().sendRecoveryEmail, verifyRecoveryMail = createWelcomeMailer().verify } = {}) {
+function createApp(authService, { sendWelcomeEmail = createWelcomeMailer().sendWelcomeEmail, resetService, messageService, groupChatService, institutionService, sendRecoveryEmail = createWelcomeMailer().sendRecoveryEmail, verifyRecoveryMail = createWelcomeMailer().verify } = {}) {
 const app = express();
 const origins = (process.env.FRONTEND_URL || 'http://localhost:5173,http://127.0.0.1:5173').split(',');
 
@@ -26,6 +28,7 @@ app.use('/api', (req, res, next) => {
 if (resetService) app.use('/api', createPasswordResetRouter(resetService, sendRecoveryEmail, verifyRecoveryMail));
 if (messageService) app.use('/api', createMessageRouter(messageService));
 if (groupChatService) app.use('/api', createGroupChatRouter(groupChatService));
+if (institutionService) app.use('/api', createInstitutionRouter(institutionService));
 
 app.get('/', (req, res) => {
   res.json({ ok: true, message: 'API running', users: [] });
@@ -44,12 +47,12 @@ if (require.main === module) {
   const path = require('node:path');
   require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
   const db = createDatabase();
-  db.query('SELECT idUser FROM users LIMIT 0').then(() => db.query('SELECT tokenHash FROM auth_sessions LIMIT 0')).then(() => db.query('SELECT idUser FROM simulated_purchases LIMIT 0')).then(() => db.query('SELECT id FROM password_resets LIMIT 0')).then(() => db.query('SELECT groupCode FROM users LIMIT 0')).then(() => db.query('SELECT id FROM group_chat_messages LIMIT 0')).then(() => db.query('SELECT id FROM message_threads LIMIT 0')).then(() => db.query('SELECT threadId FROM message_stars LIMIT 0')).then(() => db.query('SELECT threadId, sequence FROM mesages LIMIT 0')).then(() => {
+  db.query('SELECT idUser FROM users LIMIT 0').then(() => db.query('SELECT tokenHash FROM auth_sessions LIMIT 0')).then(() => db.query('SELECT idUser FROM simulated_purchases LIMIT 0')).then(() => db.query('SELECT id FROM password_resets LIMIT 0')).then(() => db.query('SELECT spaceId FROM admin_plan_spaces LIMIT 0')).then(() => db.query('SELECT groupCode FROM users LIMIT 0')).then(() => db.query('SELECT spaceId FROM group_chat_messages LIMIT 0')).then(() => db.query('SELECT spaceId FROM message_threads LIMIT 0')).then(() => db.query('SELECT threadId FROM message_stars LIMIT 0')).then(() => db.query('SELECT threadId, sequence FROM mesages LIMIT 0')).then(() => {
     const port = Number(process.env.PORT || 3001);
     const authService = createAuthService(db);
-    createApp(authService, { resetService: createPasswordResetService(db), messageService: createMessageService(db, authService), groupChatService: createGroupChatService(db, authService) }).listen(port, () => console.log(`Servidor en http://localhost:${port}`));
+    createApp(authService, { resetService: createPasswordResetService(db), messageService: createMessageService(db, authService), groupChatService: createGroupChatService(db, authService), institutionService: createInstitutionService(db, authService) }).listen(port, () => console.log(`Servidor en http://localhost:${port}`));
   }).catch(async err => {
-    console.error('No se pudo iniciar el servidor MySQL:', err.code || err.name, 'Revisá .env y ejecutá npm run db:auth, npm run db:messages y npm run db:groups.');
+    console.error('No se pudo iniciar el servidor MySQL:', err.code || err.name, 'Revisá .env y ejecutá npm run db:auth, npm run db:messages y npm run db:groups y npm run db:institutions.');
     await db.end();
     process.exitCode = 1;
   });

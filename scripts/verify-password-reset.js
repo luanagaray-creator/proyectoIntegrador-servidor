@@ -32,7 +32,6 @@ async function verify() {
     const registration = await request('/users/register', account);
     idUser = registration.data.user.idUser;
     const cookie = registration.cookie.split(';')[0];
-    await request('/payments/simulate', { plan: 'Small Plan', method: 'Visa' }, cookie);
     const unknown = await request('/auth/password-reset/request', { email: `no_${suffix}@prueba.local` });
     assert.equal(unknown.status, 200);
     assert.equal(codes.length, 0);
@@ -57,7 +56,7 @@ async function verify() {
     assert.equal((await request('/auth/login', account)).status, 401);
     const login = await request('/auth/login', { name: account.name, password: newPassword });
     assert.equal(login.status, 200);
-    assert.equal(login.data.user.purchase.amount, 250);
+    assert.equal(login.data.user.purchase, null);
     const expiredCode = await issue();
     await db.execute('UPDATE password_resets SET expiresAt = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE idUser = ?', [idUser]);
     assert.equal((await request('/auth/password-reset/verify', expiredCode)).status, 400);
@@ -66,10 +65,11 @@ async function verify() {
     await db.execute('UPDATE password_resets SET expiresAt = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE idUser = ?', [idUser]);
     assert.equal((await request('/auth/password-reset/confirm', { resetToken: tokenResult.data.resetToken, password: newPassword })).status, 400);
     assert.equal((await request('/auth/password-reset/request', { email: account.email })).status, 429);
-    console.log('Recuperación verificada: email privado, códigos cifrados, límite de intentos, reenvío, vencimiento, uso único concurrente, nueva contraseña, cierre de sesiones y paquete conservado. No se enviaron correos reales.');
+    console.log('Recuperación verificada: email privado, códigos cifrados, límite de intentos, reenvío, vencimiento, uso único concurrente, nueva contraseña, cierre de sesiones y cuenta conservada. No se enviaron correos reales.');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (idUser) {
+      await db.execute('DELETE FROM admin_plan_groups WHERE adminId = ?', [idUser]);
       await db.execute('DELETE FROM password_resets WHERE idUser = ?', [idUser]);
       await db.execute('DELETE FROM auth_sessions WHERE idUser = ?', [idUser]);
       await db.execute('DELETE FROM simulated_purchases WHERE idUser = ?', [idUser]);

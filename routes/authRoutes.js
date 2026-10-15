@@ -46,6 +46,9 @@ function createAuthRouter(service, sendWelcomeEmail) {
   router.post('/payments/simulate', async (req, res) => {
     res.json({ user: await service.simulatePurchase(readSession(req), req.body || {}) });
   });
+  router.post('/admin/plan/groups', async (req, res) => {
+    res.json({ user: await service.updatePlanGroups(readSession(req), req.body || {}) });
+  });
   router.post('/auth/logout', async (req, res) => {
     await service.logout(readSession(req));
     res.clearCookie(COOKIE_NAME, cookieOptions);

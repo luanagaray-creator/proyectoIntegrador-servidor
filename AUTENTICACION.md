@@ -1,93 +1,57 @@
-# Registro y sesión
+# Instituciones, permisos y sesiones
 
-## Chat por curso
+## Flujo actual
 
-`npm run db:groups` crea los seis grupos (1ro/2do/3ro TIC y 1ro/2do/3ro ADM), agrega `users.groupCode` y prepara `group_chat_messages`. El grupo es obligatorio para nuevas cuentas. Las cuentas anteriores sin grupo pueden elegirlo una sola vez con `POST /api/users/group` (groupCode); repetir el mismo grupo es válido, pero cambiar a otro devuelve 409. La pertenencia al curso es independiente de typeUser, que conserva el rol de usuario/admin.
+Thotem es el superadministrador. En `/platform` crea instituciones con sus espacios (1ro, 2do y 3ro TIC o ADM) y autoriza cuentas registradas para administrarlos. El registro público siempre crea usuarios comunes y no acepta privilegios.
 
-`GET /api/group-chat` devuelve solo el grupo y los mensajes de la cuenta autenticada. `POST /api/group-chat/messages` recibe content (hasta 5000 caracteres). El grupo y el remitente se obtienen siempre desde la sesión; los valores adicionales enviados por el cliente no cambian el destino ni la identidad. El chat requiere pago simulado y actualiza los mensajes cada 5 segundos. No usa SMTP.
+El administrador institucional entra en `/admin-plan`, paga un plan simulado para sus espacios autorizados y habilita usuarios registrados por nombre o email. Solo los administradores con espacios asignados pueden pagar. Small Plan: 250; Medium Plan: 500; Large Plan: 750. El servidor calcula los importes. No se reciben tarjetas ni se hacen cobros reales; moneda y duración del plan siguen pendientes de definición.
 
-Verificación: `node scripts/verify-group-chat.js`. Comprueba los seis grupos aislados, usuarios del mismo grupo, sesión, validación y elección única. Elimina sus cuentas y mensajes temporales al finalizar.
+Los usuarios comunes no ven planes. En `/spaces` ven únicamente sus espacios. Para entrar necesitan una membresía explícita y cobertura pagada por un administrador que conserve el permiso sobre ese espacio. No pueden autoadmitirse seleccionando un curso. Thotem administra permisos, sin acceso automático a chats o compras.
 
-## Mensajería interna
+Dos instituciones pueden tener un espacio llamado 3ro TIC sin compartir chats ni mensajes privados. Retirar permisos, membresía o cobertura bloquea el acceso en el servidor. El perfil se actualiza cada 15 segundos y los mensajes cada 5 mientras la página está visible.
 
-La bandeja admite `GET /api/messages?filter=all|sent|received|starred`. En enviados/recibidos se muestra una conversación por fila, con el último mensaje que el usuario envió/recibió; una conversación con intercambio en ambas direcciones puede aparecer en los dos filtros. `POST /api/messages/:id/star` recibe starred (booleano) y marca o desmarca solo para el usuario autenticado. Las estrellas se conservan en `message_stars`, creada con `npm run db:messages`.
+## Preparación
 
-Ejecutar `npm run db:messages` prepara `message_threads` y amplía `mesages` conservando sus datos originales. Los mensajes antiguos sin remitente/destinatario identificados se conservan, pero no se exponen a cuentas ajenas. La mensajería requiere una sesión válida y un paquete simulado. El destinatario puede indicarse por su nombre de usuario o email registrado. No se envían correos: la entrega ocurre dentro de Thotem.
+El backend usa mysql2 y la base proyectoIntegrador. Configurar DATABASE_URL en `.env` según `.env.example`. Sobre las tablas originales ejecutar:
 
-`GET /api/messages` devuelve las conversaciones del usuario. `POST /api/messages` recibe recipient, subject (hasta 120 caracteres) y content (hasta 5000 caracteres). `GET /api/messages/:id` carga el historial y `POST /api/messages/:id/replies` recibe content y responde al otro participante. El servidor obtiene el remitente desde la sesión y comprueba los participantes antes de leer o responder. El front actualiza la bandeja y la conversación cada 5 segundos mientras la pestaña está visible, y al recuperar el foco. La URL de la conversación permite recargar sin perder el historial.
-
-Validación con cuentas temporales: `node scripts/verify-messages.js`. No modifica usuarios reales ni manda correos.
-
-## Recuperación de contraseña
-
-`npm run db:auth` crea también `password_resets`. El flujo usa `POST /api/auth/password-reset/request` con email, `/verify` con requestId y código de 6 dígitos, y `/confirm` con resetToken y password. El código se envía por el mismo SMTP de bienvenida, vence a los 15 minutos y admite 5 intentos incorrectos. Solicitar otro código invalida el anterior. Verificarlo genera una autorización de un solo uso que vence en 10 minutos. Los códigos se guardan como hashes scrypt y las autorizaciones como hashes SHA-256. Al cambiar la contraseña se eliminan las sesiones de esa cuenta, conservando su pago simulado. La respuesta de solicitud no revela si un email existe. Se permiten hasta 5 solicitudes por IP cada 15 minutos. La recuperación comprueba SMTP antes de generar el código y espera a que Gmail acepte el correo antes de responder. Si la conexión o el envío fallan, devuelve 503 y el front muestra el error sin avanzar a la pantalla del código. No hay reintentos automáticos. La red debe permitir SMTP saliente a smtp.gmail.com (465 con TLS o 587 con STARTTLS); verify-mail.js --network permite comprobarlo sin enviar credenciales ni mensajes.
-
-Validación del flujo con MySQL: `node scripts/verify-password-reset.js`. Crea y elimina una cuenta temporal, usa un remitente de prueba en memoria y no envía correos reales.
-
-Las sesiones duran 3 horas desde el registro o el login; navegar o consultar el perfil no renueva ese plazo. La cookie y MySQL usan el mismo vencimiento. El perfil incluye `sessionExpiresAt` para que el front cierre la sesión y muestre el login al vencer, incluso con la página abierta. Ejecutar `node scripts/update-session-duration.js` adapta las sesiones anteriores de 7 días conservando sus primeras 3 horas; las cuentas y sus compras se mantienen.
-
-El frontend usa la API Express del puerto 3001. Los datos se guardan en MySQL
-mediante `mysql2`; los endpoints de autenticación no utilizan el cliente SQLite
-antiguo de `prisma/client.js`. El esquema Prisma refleja los campos de autenticación.
-
-1. Creá la base `proyectoIntegrador` y sus tablas con el SQL original.
-2. Configurá `.env` dentro de esta carpeta (ver `.env.example`):
-   `DATABASE_URL="mysql://USUARIO:CONTRASENA@localhost:3306/proyectoIntegrador"`.
-   Si la contraseña contiene caracteres especiales, codificalos para URL.
-3. Ejecutá `npm run db:auth` en esta carpeta. Amplía `users.password` a 255,
-   añade unicidad de nombre/email y crea `auth_sessions`, sin eliminar usuarios.
-   El script se puede repetir. Si hay duplicados, avisa antes de cambiar la base.
-4. Iniciá el backend con `npm start` y el frontend con su comando habitual.
-   Reiniciá Vite para activar el proxy `/api`.
-
-## Endpoints
-
-- `POST /api/users/register`: `{ name, email, password }`, crea una cuenta de tipo `user`
-  e inicia sesión automáticamente con la misma cookie que el login.
-- `POST /api/auth/login`: `{ name, password }` (también admite email), devuelve
-  el perfil y una cookie HttpOnly válida durante siete días.
-- `GET /api/users/profile`: restaura el perfil usando la cookie.
-- `POST /api/auth/logout`: elimina la sesión de MySQL y la cookie.
-
-Las contraseñas se guardan con scrypt y sal aleatoria. Las cuentas anteriores
-que tienen contraseña sin cifrar se actualizan después de un login correcto.
-La API nunca devuelve la contraseña. Los tokens se guardan como hash
-en MySQL; el navegador no guarda contraseña ni token en localStorage.
-El marcador de localStorage solo sincroniza cambios de sesión entre pestañas.
-
-En producción, serví frontend y `/api` bajo el mismo sitio mediante HTTPS,
-configurá `NODE_ENV=production` y `FRONTEND_URL` con el origen real.
-
-`npm test` verifica HTTP, cookies, registro, login, perfil, logout, expiración,
-roles y validaciones con un repositorio de prueba, sin modificar MySQL.
-
-## Correo de bienvenida
-
-Cada registro exitoso envía un correo al email de esa nueva cuenta con el asunto
-`¡Registro completado!` y el texto solicitado por Thotem. El login y los intentos
-de registro duplicados no envían correos. El envío ocurre después de responder al
-registro: un fallo de SMTP se informa en la consola del backend y no elimina la
-cuenta ni la sesión. Actualmente el envío tiene un intento, sin reenvío automático.
-
-Para Gmail, agregá estas variables al `.env` del backend:
-
-```env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER="tu-cuenta@gmail.com"
-SMTP_PASSWORD="tu-contraseña-de-aplicación"
+```sh
+npm run db:auth
+npm run db:messages
+npm run db:groups
+npm run db:institutions
+npm start
 ```
 
-Usá una contraseña de aplicación de Google con la verificación en dos pasos
-activada, según https://support.google.com/accounts/answer/185833?hl=es.
-No uses la contraseña normal de Gmail. La cuenta configurada es la remitente;
-el destinatario siempre es el email de quien se registra.
+Las migraciones conservan los datos anteriores sin asignar chats globales a instituciones arbitrarias. `users.groupCode` y `admin_plan_groups` son datos heredados: ya no otorgan acceso. Las tablas actuales son institutions, communication_spaces, space_administrators, space_memberships y admin_plan_spaces.
 
-Ejecutá `npm run mail:verify` para comprobar la conexión SMTP sin enviar mensajes,
-y reiniciá el backend después de guardar `.env`. Para otro proveedor, configurá
-su host, puerto y credenciales SMTP. No se guardan credenciales de correo en el
-frontend ni se devuelven a los clientes de la API.
-# Pagos simulados
+`scripts/provision-superadmin.js` recibe credenciales por stdin como JSON y guarda la contraseña con scrypt; no contiene credenciales predeterminadas. Nunca publicar `.env` ni contraseñas.
 
-Ejecutar `npm run db:auth` también crea `simulated_purchases`, sin modificar las tablas de facturación o tarjetas. `POST /api/payments/simulate` exige una cookie de sesión válida y recibe `plan` (Small Plan, Medium Plan o Large Plan) y `method` (Visa, Mercado Pago o Mastercard). No procesa cobros ni recibe datos de tarjetas. Guarda el último paquete simulado de cada cuenta y lo devuelve en `user.purchase` al registrar, iniciar sesión o consultar el perfil. Los importes simulados son Small Plan: 250, Medium Plan: 500 y Large Plan: 750, definidos en config/plans.json. El backend calcula y guarda amount sin aceptar importes del cliente. La moneda y los vencimientos están pendientes de definición. Las compras anteriores sin importe se conservan con amount NULL.
+## API
+
+- GET/POST `/api/platform/institutions`: superadmin; crear con `{name, groupCodes}`.
+- POST `/api/platform/administrators`: superadmin; `{user, spaceIds}` asigna espacios a una cuenta registrada.
+- DELETE `/api/platform/spaces/:spaceId/administrators/:userId`: superadmin; revoca permiso y cobertura.
+- GET/POST `/api/admin/spaces/:spaceId/members`: admin asignado; agregar con `{user}`.
+- DELETE `/api/admin/spaces/:spaceId/members/:userId`: admin asignado; retira acceso.
+- POST `/api/payments/simulate`: admin asignado; `{plan, method, spaceIds}`.
+- POST `/api/admin/plan/groups`: admin asignado; `{spaceIds}` actualiza cobertura (nombre histórico de la ruta).
+- GET `/api/group-chat?spaceId=...` y POST `/api/group-chat/messages` con `{spaceId, content}`: membresía o administración y espacio activo.
+- POST `/api/users/group`: deshabilitado; la admisión corresponde al administrador.
+
+La mensajería privada requiere participantes del mismo espacio activo. POST `/api/messages` recibe `{spaceId, recipient, subject, content}`. GET `/api/messages?filter=all|sent|received|starred`, GET `/api/messages/:id`, POST `/api/messages/:id/replies` con `{content}` y POST `/api/messages/:id/star` con `{starred}` comprueban participante y acceso vigente. El remitente proviene de la sesión. Los mensajes internos no usan SMTP.
+
+## Autenticación
+
+POST `/api/users/register` recibe `{name, email, password}` e inicia sesión. POST `/api/auth/login` acepta nombre o email y contraseña. GET `/api/users/profile` restaura el perfil; POST `/api/auth/logout` elimina la sesión.
+
+Las sesiones duran 3 horas absolutas. Navegar no renueva el plazo. La cookie HttpOnly y MySQL comparten el vencimiento; `sessionExpiresAt` permite al front pedir login al vencer. Se usan hashes SHA-256 para tokens y scrypt para contraseñas. No se guardan credenciales en localStorage. En producción usar HTTPS, NODE_ENV=production y FRONTEND_URL con el origen real.
+
+## Correo y recuperación
+
+El registro envía la bienvenida después de crear la cuenta; un fallo de correo no elimina la cuenta ni la sesión. SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER y SMTP_PASSWORD se configuran únicamente en `.env`. Para Gmail se usa contraseña de aplicación. `npm run mail:verify` verifica la conexión sin enviar mensajes.
+
+La recuperación usa POST `/api/auth/password-reset/request` con email, `/verify` con requestId y código y `/confirm` con resetToken y password. El código de 6 dígitos vence en 15 minutos y admite 5 errores; el token final dura 10 minutos y es de un solo uso. Cambiar la contraseña invalida sesiones sin borrar membresías o compras. Si SMTP falla, la API devuelve 503 y no presenta el correo como enviado. La red debe permitir SMTP saliente.
+
+## Verificación
+
+`npm test` verifica autenticación, cookies y correo con repositorios de prueba. `node scripts/verify-institutions.js` verifica con MySQL el flujo superadmin → administrador → plan → miembro, aislamiento institucional, chat, mensajes y revocaciones. Usa datos temporales y los elimina sin enviar correos reales. Las entradas verify-admin-plans, verify-group-chat y verify-messages redirigen a esa prueba institucional. `node scripts/verify-auth.js` y `node scripts/verify-password-reset.js` prueban autenticación y recuperación con cuentas temporales.

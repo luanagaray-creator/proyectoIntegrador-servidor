@@ -9,10 +9,22 @@ function memoryDatabase() {
   const users = [];
   const sessions = new Map();
   const purchases = new Map();
+  const coverage = new Map();
   const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
-  return {
-    users, sessions,
+  const database = {
+    users, sessions, managers: new Map(), members: new Map(),
     async execute(sql, values) {
+      if (sql.startsWith('SELECT s.id')) {
+        const spaces = [{id:'0000000001',name:'3ro TIC',institutionId:'1000000001',institutionName:'Instituci�n'}, {id:'0000000002',name:'1ro ADM',institutionId:'1000000001',institutionName:'Instituci�n'}];
+        const managed = database.managers.get(values[0]) || [];
+        if (!sql.includes('AS isActive')) return [spaces.filter(space => managed.includes(space.id))];
+        return [spaces.filter(space => managed.includes(space.id) || (database.members.get(values[0]) || []).includes(space.id)).map(space => ({...space,isActive:[...coverage].some(([id, ids]) => purchases.has(id) && users.some(user => user.idUser === id && user.typeUser === 'admin') && ids.includes(space.id) && (database.managers.get(id) || []).includes(space.id))}))];
+      }
+      if (sql.startsWith('SELECT covered.spaceId')) return [(coverage.get(values[0]) || []).filter(id => (database.managers.get(values[0]) || []).includes(id)).map(spaceId => ({spaceId}))];
+      if (sql.startsWith('SELECT spaceId FROM space_administrators')) return [(database.managers.get(values[0]) || []).includes(values[1]) ? [{spaceId:values[1]}] : []];
+      if (sql.startsWith('DELETE FROM admin_plan_spaces')) { coverage.set(values[0], []); return [{}]; }
+      if (sql.startsWith('INSERT INTO admin_plan_spaces')) { coverage.set(values[0], [...(coverage.get(values[0]) || []), values[1]]); return [{}]; }
+      if (sql.startsWith('SELECT idUser FROM simulated_purchases')) return [purchases.has(values[0]) ? [{idUser:values[0]}] : []];
       if (sql.startsWith('SELECT plan, method, paidAt, amount FROM simulated_purchases')) return [purchases.has(values[0]) ? [purchases.get(values[0])] : []];
       if (sql.startsWith('INSERT INTO simulated_purchases')) { purchases.set(values[0], { plan: values[1], method: values[2], amount: values[3], paidAt: new Date().toISOString() }); return [{}]; }
       if (sql.startsWith('SELECT idUser FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
@@ -37,6 +49,8 @@ function memoryDatabase() {
       throw new Error(`Consulta inesperada: ${sql}`);
     },
   };
+  database.getConnection = async () => ({execute: database.execute, beginTransaction: async()=>{}, commit:async()=>{}, rollback:async()=>{}, release:()=>{}});
+  return database;
 }
 
 async function withServer(run, sendWelcomeEmail = async () => {}) {
@@ -59,16 +73,19 @@ async function withServer(run, sendWelcomeEmail = async () => {}) {
 
 const account = { name: 'Ana', email: 'ana@example.com', password: 'clave_segura', groupCode: '3ro TIC' };
 
-test('pago simulado exige sesión, valida paquete y persiste por usuario al volver a iniciar sesión', () => withServer(async ({ request }) => {
-  const purchase = { plan: 'Small Plan', method: 'Visa' };
+test('solo un admin paga, el plan persiste y habilita grupos sin pagos individuales', () => withServer(async ({ request, db }) => {
+  const purchase = { plan: 'Small Plan', method: 'Visa', spaceIds: ['0000000001', '0000000002'] };
   assert.equal((await request('/payments/simulate', purchase)).status, 401);
   const registered = await request('/users/register', account);
   assert.equal(registered.data.user.purchase, null);
   const cookie = registered.cookie.split(';')[0];
+  assert.equal((await request('/payments/simulate', purchase, cookie)).status, 403);
+  db.users[0].typeUser = 'admin';
+  db.managers.set(db.users[0].idUser, purchase.spaceIds);
   assert.equal((await request('/payments/simulate', { ...purchase, plan: 'otro' }, cookie)).status, 400);
   assert.equal((await request('/payments/simulate', { ...purchase, method: 'otro' }, cookie)).status, 400);
   for (const [plan, method] of [['Small Plan', 'Visa'], ['Medium Plan', 'Mercado Pago'], ['Large Plan', 'Mastercard']]) {
-    const paid = await request('/payments/simulate', { plan, method, amount: 1 }, cookie);
+    const paid = await request('/payments/simulate', { plan, method, amount: 1, spaceIds: purchase.spaceIds }, cookie);
     assert.equal(paid.status, 200);
     assert.equal(paid.data.user.purchase.plan, plan);
     assert.equal(paid.data.user.purchase.method, method);
@@ -81,6 +98,9 @@ test('pago simulado exige sesión, valida paquete y persiste por usuario al volv
   assert.equal(login.data.user.purchase.plan, 'Large Plan');
   const other = await request('/users/register', { name: 'Otra', email: 'otra@example.com', password: account.password, groupCode: '1ro ADM' });
   assert.equal(other.data.user.purchase, null);
+  assert.equal(other.data.user.hasAccess, false);
+  db.members.set(other.data.user.idUser, ['0000000002']);
+  assert.equal((await request('/users/profile', undefined, other.cookie.split(';')[0])).data.user.hasAccess, true);
 }));
 
 test('registro guarda contraseña cifrada, genera id válido y no permite elegir rol admin', () => withServer(async ({ request, db }) => {
@@ -153,8 +173,7 @@ test('registro valida campos y rechaza nombres o emails duplicados', () => withS
   assert.equal((await request('/users/register', { ...account, email: 'invalido' })).status, 400);
   assert.equal((await request('/users/register', { ...account, name: 'a'.repeat(31) })).status, 400);
   assert.equal((await request('/users/register', { ...account, groupCode: '4to TIC' })).status, 400);
-  assert.equal((await request('/users/register', { ...account, groupCode: undefined })).status, 400);
-  await request('/users/register', account);
+  assert.equal((await request('/users/register', { ...account, groupCode: undefined })).status, 201);
   assert.equal((await request('/users/register', { ...account, name: 'ANA', email: 'otra@example.com' })).status, 409);
   assert.equal((await request('/users/register', { ...account, name: 'Otro' })).status, 409);
 }));
