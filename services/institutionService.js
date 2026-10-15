@@ -91,6 +91,11 @@ function createInstitutionService(db, auth) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+      // Serializa las asignaciones concurrentes del mismo usuario.
+      const [targets] = await connection.execute('SELECT typeUser FROM users WHERE idUser = ? FOR UPDATE', [target.idUser]);
+      if (targets[0]?.typeUser !== 'user') throw fail(400, 'Solo se puede asignar un chat a una cuenta de usuario común.');
+      const [memberships] = await connection.execute('SELECT spaceId FROM space_memberships WHERE idUser = ?', [target.idUser]);
+      if (memberships.some(member => member.spaceId !== spaceId)) throw fail(409, 'Este usuario ya tiene un chat asignado. Primero debe retirarse su acceso al chat anterior.');
       const [permissions] = await connection.execute('SELECT spaceId FROM space_administrators WHERE spaceId = ? AND idUser = ? FOR UPDATE', [spaceId, user.idUser]);
       if (!permissions[0]) throw fail(403, 'El permiso para administrar ese espacio fue retirado.');
       await connection.execute('INSERT IGNORE INTO space_memberships (spaceId, idUser, grantedBy) VALUES (?, ?, ?)', [spaceId, target.idUser, user.idUser]);

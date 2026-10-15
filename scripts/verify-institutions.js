@@ -17,7 +17,7 @@ async function verify() {
     const [[info]] = await db.query('SELECT DATABASE() AS name');
     assert.equal(info.name.toLowerCase(), 'proyectointegrador');
     const auth = createAuthService(db);
-    for (let index = 0; index < 6; index++) {
+    for (let index = 0; index < 7; index++) {
       const suffix = randomBytes(5).toString('hex');
       const account = { name: `inst_${suffix}`, email: `${suffix}@prueba.local`, password: randomBytes(16).toString('hex') };
       const result = await auth.register({ ...account, typeUser: 'superadmin', groupCode: '3ro TIC' });
@@ -25,7 +25,7 @@ async function verify() {
       assert.equal(result.user.hasAccess, false);
       accounts.push({ ...result, ...account, cookie: `anima_session=${result.token}` });
     }
-    const [root, adminA, adminB, studentA, studentB, outsider] = accounts;
+    const [root, adminA, adminB, studentA, studentB, outsider, concurrent] = accounts;
     await db.execute("UPDATE users SET typeUser = 'superadmin' WHERE idUser = ?", [root.user.idUser]);
     server = createApp(auth, { institutionService: createInstitutionService(db, auth), groupChatService: createGroupChatService(db, auth), messageService: createMessageService(db, auth), sendWelcomeEmail: async () => {} }).listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -65,6 +65,12 @@ async function verify() {
     assert.equal(admitted.hasAccess, true);
     assert.equal(admitted.purchase, null);
     assert.deepEqual(admitted.spaces.map(space => space.id), [spaceA.id]);
+    assert.equal((await request(`/admin/spaces/${extraA.id}/members`, adminA, { user: studentA.name })).status, 409);
+    assert.equal((await request(`/admin/spaces/${spaceB.id}/members`, adminB, { user: studentA.name })).status, 409);
+    assert.equal((await request(`/admin/spaces/${spaceA.id}/members`, adminA, { user: studentA.name })).status, 200);
+    const competing = await Promise.all([spaceA.id, extraA.id].map(id => request(`/admin/spaces/${id}/members`, adminA, { user: concurrent.name })));
+    assert.deepEqual(competing.map(result => result.status).sort(), [200, 409]);
+    assert.equal((await auth.profile(concurrent.token)).spaces.length, 1);
     assert.equal((await request(`/admin/spaces/${spaceB.id}/members`, adminB, { user: studentB.email })).status, 200);
     assert.equal((await auth.profile(studentB.token)).hasAccess, false);
     assert.equal((await request('/payments/simulate', adminB, { ...payment, spaceIds: [spaceB.id] })).status, 200);
@@ -89,9 +95,24 @@ async function verify() {
     assert.equal((await request('/messages?filter=received', studentA)).data.threads.length, 1);
     assert.equal((await request(`/messages/${sent.data.threadId}/star`, studentA, { starred: true })).status, 200);
     assert.equal((await request('/messages?filter=starred', studentA)).data.threads.length, 1);
+    // Otro curso de la misma institución: mensajes privados sí, chat grupal ajeno no.
+    assert.equal((await request('/admin/plan/groups', adminA, { spaceIds: [spaceA.id, extraA.id] })).status, 200);
+    assert.equal((await request(`/admin/spaces/${extraA.id}/members`, adminA, { user: outsider.name })).status, 200);
+    const crossCourse = await request('/messages', studentA, { ...message, recipient: outsider.name });
+    assert.equal(crossCourse.status, 201);
+    assert.equal((await request(`/messages/${crossCourse.data.threadId}`, outsider)).status, 200);
+    assert.equal((await request(`/messages/${crossCourse.data.threadId}/replies`, outsider, { content: 'Respuesta de otro curso' })).status, 201);
+    assert.equal((await request(`/messages/${crossCourse.data.threadId}/star`, outsider, { starred: true })).status, 200);
+    assert.equal((await request('/messages?filter=sent', outsider)).data.threads.length, 1);
+    assert.equal((await request('/messages?filter=received', outsider)).data.threads.length, 1);
+    assert.equal((await request('/group-chat?spaceId=' + spaceA.id, outsider)).status, 403);
+    assert.equal((await request('/messages', outsider, { ...message, spaceId: extraA.id, recipient: studentB.name })).status, 400);
+    assert.equal((await request(`/messages/${crossCourse.data.threadId}/replies`, studentB, { content: 'Acceso ajeno' })).status, 404);
     await request(`/admin/spaces/${spaceA.id}/members/${studentA.user.idUser}`, adminA, undefined, 'DELETE');
     assert.equal((await auth.profile(studentA.token)).hasAccess, false);
     assert.equal((await request(`/messages/${sent.data.threadId}`, studentA)).status, 403);
+    assert.equal((await request(`/messages/${sent.data.threadId}`, adminA)).status, 404);
+    assert.equal((await request(`/messages/${sent.data.threadId}/replies`, adminA, { content: 'Sin destinatario habilitado' })).status, 404);
     await request(`/admin/spaces/${spaceA.id}/members`, adminA, { user: studentA.name });
     await request('/admin/plan/groups', adminA, { spaceIds: [extraA.id] });
     assert.equal((await auth.profile(studentA.token)).hasAccess, false);
@@ -100,7 +121,7 @@ async function verify() {
     await request(`/platform/spaces/${spaceA.id}/administrators/${adminA.user.idUser}`, root, undefined, 'DELETE');
     assert.equal((await auth.profile(studentA.token)).hasAccess, false);
     assert.equal((await auth.profile(studentB.token)).hasAccess, true);
-    console.log('Flujo institucional verificado: superadmin → administrador autorizado → plan → miembro admitido; instituciones aisladas, mismo curso sin mezclar, revocación, chat y mensajes privados.');
+    console.log('Verificado: un chat por usuario, asignaciones concurrentes sin duplicados, mensajes entre cursos de la misma institución, bloqueo entre instituciones y revocaciones.');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     for (const account of accounts) {
