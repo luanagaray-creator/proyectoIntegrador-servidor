@@ -6,7 +6,7 @@ Thotem es el superadministrador. En `/platform` crea instituciones con sus espac
 
 El administrador institucional entra en `/admin-plan`, paga un plan simulado para sus espacios autorizados y habilita usuarios registrados por nombre o email. Solo los administradores con espacios asignados pueden pagar. Small Plan: 250; Medium Plan: 500; Large Plan: 750. El servidor calcula los importes. No se reciben tarjetas ni se hacen cobros reales; moneda y duración del plan siguen pendientes de definición.
 
-Los usuarios comunes no ven planes. En `/spaces` ven únicamente sus espacios. Para entrar necesitan una membresía explícita y cobertura pagada por un administrador que conserve el permiso sobre ese espacio. No pueden autoadmitirse seleccionando un curso. Thotem administra permisos, sin acceso automático a chats o compras.
+Los usuarios comunes no ven planes y solo pueden tener un chat asignado. La API rechaza una segunda asignación y MySQL impone un índice único por usuario; repetir la asignación actual es válido. Para cambiar de curso se retira primero el acceso anterior. Para entrar necesitan una membresía explícita y cobertura pagada por un administrador que conserve el permiso sobre ese espacio. No pueden autoadmitirse seleccionando un curso. Los administradores pueden gestionar varios espacios autorizados por Thotem.
 
 Dos instituciones pueden tener un espacio llamado 3ro TIC sin compartir chats ni mensajes privados. Retirar permisos, membresía o cobertura bloquea el acceso en el servidor. El perfil se actualiza cada 15 segundos y los mensajes cada 5 mientras la página está visible.
 
@@ -38,7 +38,7 @@ Las migraciones conservan los datos anteriores sin asignar chats globales a inst
 - GET `/api/group-chat?spaceId=...` y POST `/api/group-chat/messages` con `{spaceId, content}`: membresía o administración y espacio activo.
 - POST `/api/users/group`: deshabilitado; la admisión corresponde al administrador.
 
-La mensajería privada requiere participantes del mismo espacio activo. POST `/api/messages` recibe `{spaceId, recipient, subject, content}`. GET `/api/messages?filter=all|sent|received|starred`, GET `/api/messages/:id`, POST `/api/messages/:id/replies` con `{content}` y POST `/api/messages/:id/star` con `{starred}` comprueban participante y acceso vigente. El remitente proviene de la sesión. Los mensajes internos no usan SMTP.
+La mensajería privada requiere que ambos participantes tengan acceso activo a la misma institución, aunque estén en cursos diferentes. Las conversaciones guardan institutionId; la migración lo obtiene del espacio original sin borrar mensajes. POST `/api/messages` recibe `{spaceId, recipient, subject, content}`; spaceId determina una institución autorizada del remitente. GET `/api/messages?filter=all|sent|received|starred`, GET `/api/messages/:id`, POST `/api/messages/:id/replies` con `{content}` y POST `/api/messages/:id/star` con `{starred}` comprueban participante e institución vigente de ambos usuarios. Tras cambiar de institución, los mensajes anteriores no se exponen a la nueva institución. Los chats grupales siguen restringidos al curso asignado. El remitente proviene de la sesión. Los mensajes internos no usan SMTP.
 
 ## Autenticación
 

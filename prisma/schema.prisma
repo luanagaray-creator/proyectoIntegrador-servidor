@@ -46,6 +46,8 @@ model Mesage {
 }
 
 model MessageThread {
+  institutionId String? @db.Char(10)
+  @@index([institutionId], map: "message_thread_institution")
   spaceId String? @db.Char(10)
 
   @@index([spaceId], map: "message_thread_space")
@@ -158,7 +160,7 @@ model SpaceAdministrator {
 }
 model SpaceMembership {
   spaceId String @db.Char(10)
-  idUser String @db.VarChar(10)
+  idUser String @unique(map: "space_member_single_chat") @db.VarChar(10)
   grantedBy String @db.VarChar(10)
   @@id([spaceId, idUser])
   @@index([idUser], map: "space_member_user")
