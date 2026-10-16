@@ -75,7 +75,7 @@ async function verify() {
     assert.equal((await auth.profile(studentB.token)).hasAccess, false);
     assert.equal((await request('/payments/simulate', adminB, { ...payment, spaceIds: [spaceB.id] })).status, 200);
     assert.equal((await request('/group-chat?spaceId=' + spaceB.id, studentA)).status, 403);
-    const markerA = randomBytes(8).toString('hex'), markerB = randomBytes(8).toString('hex');
+    const markerA = randomBytes(8).toString('hex') + ' 😀🎉❤️', markerB = randomBytes(8).toString('hex');
     assert.equal((await request('/group-chat/messages', studentA, { content: markerA, spaceId: spaceA.id, senderId: studentB.user.idUser })).status, 201);
     assert.equal((await request('/group-chat/messages', studentB, { content: markerB, spaceId: spaceB.id })).status, 201);
     assert.equal((await request('/group-chat/messages', studentA, { content: 'ajeno', spaceId: spaceB.id })).status, 403);
@@ -86,12 +86,14 @@ async function verify() {
     assert.equal(historyB[0].content, markerB);
     assert.ok(!historyA.some(message => message.content === markerB));
     assert.equal((await request(`/admin/spaces/${spaceA.id}/members`, outsider)).status, 403);
-    const message = { recipient: adminA.name, subject: 'Prueba privada', content: 'Consulta de mi espacio', spaceId: spaceA.id };
+    const message = { recipient: adminA.name, subject: 'Prueba privada', content: 'Consulta de mi espacio 😀📚❤️', spaceId: spaceA.id };
     assert.equal((await request('/messages', studentA, { ...message, recipient: studentB.name })).status, 400);
     const sent = await request('/messages', studentA, message);
     assert.equal(sent.status, 201);
+    assert.equal((await request(`/messages/${sent.data.threadId}`, adminA)).data.messages[0].content, message.content);
     assert.equal((await request(`/messages/${sent.data.threadId}`, adminB)).status, 404);
-    assert.equal((await request(`/messages/${sent.data.threadId}/replies`, adminA, { content: 'Respuesta' })).status, 201);
+    assert.equal((await request(`/messages/${sent.data.threadId}/replies`, adminA, { content: 'Respuesta 👍😊' })).status, 201);
+    assert.equal((await request(`/messages/${sent.data.threadId}`, studentA)).data.messages.at(-1).content, 'Respuesta 👍😊');
     assert.equal((await request('/messages?filter=received', studentA)).data.threads.length, 1);
     assert.equal((await request(`/messages/${sent.data.threadId}/star`, studentA, { starred: true })).status, 200);
     assert.equal((await request('/messages?filter=starred', studentA)).data.threads.length, 1);
