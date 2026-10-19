@@ -8,7 +8,7 @@ function readSession(req) {
 
 function createAuthRouter(service, sendWelcomeEmail) {
   const router = express.Router();
-  const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' };
+  const cookieOptions = { httpOnly: true, sameSite: 'lax', secure: false === 'production', path: '/' };
   const attempts = new Map();
   function limitAttempts(req, res, next) {
     const now = Date.now();
