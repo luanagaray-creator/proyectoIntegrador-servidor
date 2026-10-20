@@ -47,10 +47,16 @@ function createMessageService(db, authService) {
     const user = await account(token);
     validId(id);
     if (typeof body.starred !== 'boolean') throw fail(400, 'Indicá si querés destacar la conversación.');
-    const [threads] = await db.execute(threadQuery, [id, user.idUser, user.idUser]);
-    if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
-    if (body.starred) await db.execute('INSERT IGNORE INTO message_stars (idUser, threadId) VALUES (?, ?)', [user.idUser, id]);
-    else await db.execute('DELETE FROM message_stars WHERE idUser = ? AND threadId = ?', [user.idUser, id]);
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [threads] = await connection.execute(`${threadQuery} FOR UPDATE`, [id, user.idUser, user.idUser]);
+      if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
+      if (body.starred) await connection.execute('INSERT IGNORE INTO message_stars (idUser, threadId) VALUES (?, ?)', [user.idUser, id]);
+      else await connection.execute('DELETE FROM message_stars WHERE idUser = ? AND threadId = ?', [user.idUser, id]);
+      await connection.commit();
+    } catch (err) { await connection.rollback(); throw err; }
+    finally { connection.release(); }
     return { threadId: id, isStarred: body.starred };
   }
   async function conversation(token, id) {
@@ -60,6 +66,23 @@ function createMessageService(db, authService) {
     if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
     const [messages] = await db.execute('SELECT m.idMesage, m.senderId, m.recipientId, m.content, m.sentAt, u.name AS senderName FROM mesages m JOIN users u ON u.idUser = m.senderId WHERE m.threadId = ? ORDER BY m.sequence ASC', [id]);
     return { thread: threads[0], messages };
+  }
+  async function deleteMessage(token, threadId, messageId) {
+    const user = await account(token);
+    validId(threadId);
+    validId(messageId);
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [threads] = await connection.execute(`${threadQuery} FOR UPDATE`, [threadId, user.idUser, user.idUser]);
+      if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró el mensaje o no tenés permiso para eliminarlo.');
+      const [messages] = await connection.execute('SELECT idMesage FROM mesages WHERE idMesage = ? AND threadId = ? AND senderId = ? FOR UPDATE', [messageId, threadId, user.idUser]);
+      if (!messages[0]) throw fail(404, 'No se encontró el mensaje o no tenés permiso para eliminarlo.');
+      await connection.execute('DELETE FROM mesages WHERE idMesage = ? AND threadId = ? AND senderId = ?', [messageId, threadId, user.idUser]);
+      await connection.commit();
+      return { messageId, message: 'Mensaje eliminado.' };
+    } catch (err) { await connection.rollback(); throw err; }
+    finally { connection.release(); }
   }
   async function send(token, body) {
     const user = await account(token);
@@ -78,6 +101,10 @@ function createMessageService(db, authService) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+      const [institutions] = await connection.execute('SELECT id FROM institutions WHERE id = ? FOR UPDATE', [space.institutionId]);
+      if (!institutions[0]) throw fail(404, 'La institución ya no está disponible.');
+      const [spaces] = await connection.execute('SELECT id FROM communication_spaces WHERE id = ? FOR UPDATE', [space.id]);
+      if (!spaces[0]) throw fail(404, 'El espacio ya no está disponible.');
       await connection.execute('INSERT INTO message_threads (id, spaceId, institutionId, subject, senderId, recipientId, createdAt) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3))', [id, space.id, space.institutionId, subject, user.idUser, users[0].idUser]);
       await insert(connection, id, user.idUser, users[0].idUser, users[0].name, content);
       await connection.commit();
@@ -102,6 +129,6 @@ function createMessageService(db, authService) {
     } catch (err) { await connection.rollback(); throw err; }
     finally { connection.release(); }
   }
-  return { list, conversation, send, reply, setStar };
+  return { list, conversation, send, reply, setStar, deleteMessage };
 }
 module.exports = { createMessageService };

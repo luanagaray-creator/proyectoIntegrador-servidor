@@ -14,8 +14,15 @@ function memoryDatabase() {
   const database = {
     users, sessions, managers: new Map(), members: new Map(),
     async execute(sql, values) {
+      if (sql.startsWith('SELECT idUser, typeUser, isActive FROM users')) return [users.filter(user => user.idUser === values[0])];
+      if (sql.startsWith('SELECT i.id, i.name, payment.idUser')) return [[]];
+      if (sql.startsWith('SELECT i.id FROM institutions')) return [[]];
+      if (sql.startsWith('SELECT id, institutionId FROM communication_spaces')) return [values.map(id => ({ id, institutionId: '1000000001' }))];
+      if (sql.startsWith('SELECT covered.spaceId, payment.plan')) return [[...coverage].filter(([id]) => id !== values[1] && purchases.has(id)).flatMap(([id, ids]) => ids.map(spaceId => ({ spaceId, plan: purchases.get(id).plan })))];
+      if (sql.startsWith('SELECT idUser, plan FROM simulated_purchases')) return [purchases.has(values[0]) ? [{ idUser: values[0], plan: purchases.get(values[0]).plan }] : []];
+      if (sql.startsWith('DELETE FROM simulated_purchases')) { purchases.delete(values[0]); return [{}]; }
       if (sql.startsWith('SELECT s.id')) {
-        const spaces = [{id:'0000000001',name:'3ro TIC',institutionId:'1000000001',institutionName:'Institución'}, {id:'0000000002',name:'1ro ADM',institutionId:'1000000001',institutionName:'Institución'}];
+        const spaces = [{id:'0000000001',name:'3ro TIC',institutionId:'1000000001',institutionName:'InstituciÃ³n'}, {id:'0000000002',name:'1ro ADM',institutionId:'1000000001',institutionName:'InstituciÃ³n'}];
         const managed = database.managers.get(values[0]) || [];
         if (!sql.includes('AS isActive')) return [spaces.filter(space => managed.includes(space.id))];
         return [spaces.filter(space => managed.includes(space.id) || (database.members.get(values[0]) || []).includes(space.id)).map(space => ({...space,isActive:[...coverage].some(([id, ids]) => purchases.has(id) && users.some(user => user.idUser === id && user.typeUser === 'admin') && ids.includes(space.id) && (database.managers.get(id) || []).includes(space.id))}))];
@@ -25,7 +32,7 @@ function memoryDatabase() {
       if (sql.startsWith('DELETE FROM admin_plan_spaces')) { coverage.set(values[0], []); return [{}]; }
       if (sql.startsWith('INSERT INTO admin_plan_spaces')) { coverage.set(values[0], [...(coverage.get(values[0]) || []), values[1]]); return [{}]; }
       if (sql.startsWith('SELECT idUser FROM simulated_purchases')) return [purchases.has(values[0]) ? [{idUser:values[0]}] : []];
-      if (sql.startsWith('SELECT plan, method, paidAt, amount FROM simulated_purchases')) return [purchases.has(values[0]) ? [purchases.get(values[0])] : []];
+      if (sql.startsWith('SELECT plan, method, paidAt, amount')) return [purchases.has(values[0]) ? [purchases.get(values[0])] : []];
       if (sql.startsWith('INSERT INTO simulated_purchases')) { purchases.set(values[0], { plan: values[1], method: values[2], amount: values[3], paidAt: new Date().toISOString() }); return [{}]; }
       if (sql.startsWith('SELECT idUser FROM users')) return [users.filter(u => same(u.name, values[0]) || same(u.email, values[1]))];
       if (sql.startsWith('INSERT INTO users')) {

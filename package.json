@@ -6,6 +6,10 @@
   "scripts": {
     "start": "node index.js",
     "test": "node --test tests/auth.test.js tests/mail.test.js tests/password-reset-mail.test.js",
+    "test:limits": "node scripts/verify-space-limits.js",
+    "test:management": "node scripts/verify-institution-management.js",
+    "test:space-creation": "node scripts/verify-space-creation.js",
+    "test:admin-status": "node scripts/verify-admin-status.js",
     "mail:verify": "node scripts/verify-mail.js",
     "db:auth": "node scripts/setup-auth.js",
     "db:messages": "node scripts/setup-messages.js",

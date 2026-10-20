@@ -49,6 +49,9 @@ function createAuthRouter(service, sendWelcomeEmail) {
   router.post('/admin/plan/groups', async (req, res) => {
     res.json({ user: await service.updatePlanGroups(readSession(req), req.body || {}) });
   });
+  router.delete('/admin/plan', async (req, res) => {
+    res.json({ user: await service.cancelPlan(readSession(req), req.body || {}) });
+  });
   router.post('/auth/logout', async (req, res) => {
     await service.logout(readSession(req));
     res.clearCookie(COOKIE_NAME, cookieOptions);
