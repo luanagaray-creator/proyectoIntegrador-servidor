@@ -2,9 +2,9 @@
 
 ## Flujo actual
 
-Thotem es el superadministrador. En `/platform` crea instituciones con sus espacios (1ro, 2do y 3ro TIC o ADM) y autoriza cuentas registradas para administrarlos. El registro público siempre crea usuarios comunes y no acepta privilegios.
+Thotem es el superadministrador. En `/platform` crea instituciones vacías y autoriza cuentas registradas como administradores institucionales. No elige cursos ni crea espacios predefinidos. El registro público siempre crea usuarios comunes y no acepta privilegios.
 
-El administrador institucional entra en `/admin-plan`, paga un plan simulado para sus espacios autorizados y habilita usuarios registrados por nombre o email. Solo los administradores con espacios asignados pueden pagar. Small Plan: 250; Medium Plan: 500; Large Plan: 750. El servidor calcula los importes. No se reciben tarjetas ni se hacen cobros reales; moneda y duración del plan siguen pendientes de definición.
+El administrador institucional puede contratar un plan antes de tener espacios. Después, en `/admin-plan`, escribe el nombre de cada clase para crearla y agrega sus usuarios registrados. Small Plan: 250, hasta 3 espacios; Medium Plan: 500, hasta 4; Large Plan: 750, hasta 6. Todos los espacios nuevos quedan cubiertos automáticamente y admiten 30 usuarios comunes. El servidor calcula importes y valida cupos. No se reciben tarjetas ni se hacen cobros reales; moneda y duración del plan siguen pendientes de definición.
 
 Los usuarios comunes no ven planes y solo pueden tener un chat asignado. La API rechaza una segunda asignación y MySQL impone un índice único por usuario; repetir la asignación actual es válido. Para cambiar de curso se retira primero el acceso anterior. Para entrar necesitan una membresía explícita y cobertura pagada por un administrador que conserve el permiso sobre ese espacio. No pueden autoadmitirse seleccionando un curso. Los administradores pueden gestionar varios espacios autorizados por Thotem.
 
@@ -28,19 +28,51 @@ Las migraciones conservan los datos anteriores sin asignar chats globales a inst
 
 ## API
 
+En `/platform`, Thotem dispone del listado global «Administradores», con nombre, email e instituciones asignadas, búsqueda por esos campos y total de cuentas. GET `/api/platform/institutions` devuelve `adminAccounts` con las cuentas de rol `admin`, incluso sin institución asignada; las relaciones provienen de `institutionAdministrators`. Cada cuenta aparece una sola vez. El acceso a este listado está reservado al superadministrador.
+
+Thotem puede desactivar y reactivar administradores desde ese listado y filtrar por estado. PATCH `/api/platform/administrators/:userId` recibe `{isActive: boolean}`; rechaza usuarios comunes y la cuenta superadministradora. Desactivar conserva el rol `admin`, instituciones, permisos, espacios y planes, pero elimina todas las sesiones y bloquea el login. Los usuarios de la institución conservan sus accesos y el plan sigue vigente. Reactivar permite volver a iniciar sesión; las sesiones anteriores no se restauran. El registro público y la asignación de permisos no pueden reactivar una cuenta inactiva. `npm run db:institutions` agrega `users.isActive` con valor inicial activo, y `npm run test:admin-status` verifica permisos, revocación de sesiones, reactivación y carreras entre login y desactivación con datos temporales.
+
 - GET/POST `/api/platform/institutions`: superadmin; crear con `{name, groupCodes}`.
-- POST `/api/platform/administrators`: superadmin; `{user, spaceIds}` asigna espacios a una cuenta registrada.
+- POST `/api/platform/administrators`: superadmin; `{user, institutionId}` asigna una institución a una cuenta registrada, aunque todavía no tenga espacios.
+- DELETE `/api/platform/institutions/:institutionId/administrators/:userId`: superadmin; retira la administración institucional, los permisos de sus espacios y el plan que hubiera contratado esa cuenta en la institución.
+- POST `/api/admin/spaces`: admin institucional; `{institutionId, name}` crea un espacio si hay un plan contratado y un cupo disponible. No acepta crear en instituciones ajenas.
 - DELETE `/api/platform/spaces/:spaceId/administrators/:userId`: superadmin; revoca permiso y cobertura.
 - GET/POST `/api/admin/spaces/:spaceId/members`: admin asignado; agregar con `{user}`.
 - DELETE `/api/admin/spaces/:spaceId/members/:userId`: admin asignado; retira acceso.
-- POST `/api/payments/simulate`: admin asignado; `{plan, method, spaceIds}`.
+- POST `/api/payments/simulate`: admin institucional; `{plan, method, institutionId}`. No hay selección previa de cursos; puede pagarse con cero espacios.
 - POST `/api/admin/plan/groups`: admin asignado; `{spaceIds}` actualiza cobertura (nombre histórico de la ruta).
 - GET `/api/group-chat?spaceId=...` y POST `/api/group-chat/messages` con `{spaceId, content}`: membresía o administración y espacio activo.
 - POST `/api/users/group`: deshabilitado; la admisión corresponde al administrador.
 
 La mensajería privada requiere que ambos participantes tengan acceso activo a la misma institución, aunque estén en cursos diferentes. Las conversaciones guardan institutionId; la migración lo obtiene del espacio original sin borrar mensajes. POST `/api/messages` recibe `{spaceId, recipient, subject, content}`; spaceId determina una institución autorizada del remitente. GET `/api/messages?filter=all|sent|received|starred`, GET `/api/messages/:id`, POST `/api/messages/:id/replies` con `{content}` y POST `/api/messages/:id/star` con `{starred}` comprueban participante e institución vigente de ambos usuarios. Tras cambiar de institución, los mensajes anteriores no se exponen a la nueva institución. Los chats grupales siguen restringidos al curso asignado. El remitente proviene de la sesión. Los mensajes internos no usan SMTP.
 
-## Autenticación
+## Cupos y personalización
+
+Small Plan (250) permite crear hasta 3 espacios, Medium Plan (500) hasta 4 y Large Plan (750) hasta 6. Los límites se aplican a todos los espacios de la institución, no por administrador. Varios administradores comparten el cupo. La creación y los cambios de plan se serializan en MySQL para evitar superar el límite con solicitudes simultáneas.
+
+Para bajar de plan hay que eliminar primero los espacios que excedan el nuevo cupo. Se conservan los espacios existentes de instalaciones anteriores: no se borran automáticamente. El formulario de creación indica cuántos espacios hay y cuántos lugares quedan disponibles.
+
+`institution_administrators` permite administrar instituciones vacías. `simulated_purchases.institutionId` vincula el plan con su institución. `npm run db:institutions` prepara esos datos y migra las asignaciones anteriores sin eliminar espacios. El plan se conserva al borrar el último espacio, permitiendo crear otro sin volver a pagar. Cancelarlo suspende el acceso sin borrar clases, usuarios ni mensajes. El comprobante es accesible antes de crear el primer espacio y lleva a Administración.
+
+`npm run test:space-creation` prueba institución vacía → administrador → pago → creación con nombres propios, cupos 3/4/6, altas simultáneas, borrado y recreación, cancelación y aislamiento institucional, usando datos temporales.
+
+PATCH `/api/admin/spaces/:spaceId` recibe `{name}` y permite renombrar un espacio administrado con entre 1 y 30 caracteres, sin nombres repetidos dentro de la institución. Cada espacio admite 30 usuarios comunes; los administradores no ocupan esos lugares. GET `/api/admin/spaces/:spaceId/members` informa `capacity` y `available`. Las altas simultáneas se serializan para no superar 30 miembros y repetir la asignación actual no consume un cupo adicional.
+
+DELETE `/api/admin/plan` cancela la compra del administrador y retira su cobertura, conservando institución, espacios, miembros, mensajes y rol `admin`. Asignar permisos institucionales convierte la cuenta en `admin` y retira su membresía de usuario común. Cancelar un plan no modifica ese rol. La interfaz muestra “Plan Actual” cuando hay una compra y permite cancelarla desde Administración.
+
+`npm run test:limits` verifica estos límites y sus condiciones concurrentes con MySQL usando cuentas temporales que elimina al finalizar.
+
+## Borrado de espacios e instituciones
+
+DELETE `/api/admin/spaces/:spaceId` permite a su administrador asignado o a Thotem eliminar un espacio. PATCH sobre esa misma ruta permite editar su nombre. La sección «Mis espacios» de Administración muestra ambas acciones para cada espacio, sin tener que seleccionarlo primero para asignar un usuario.
+
+Eliminar un espacio borra sus mensajes grupales, membresías, permisos y cobertura. Las conversaciones privadas pertenecen a la institución y se conservan, con `spaceId` vacío; sus participantes siguen necesitando acceso activo a la misma institución. El plan institucional se conserva y el lugar queda libre para crear otro espacio. Se conservan las cuentas y los roles de administrador.
+
+DELETE `/api/platform/institutions/:institutionId` está reservado a Thotem y elimina la institución, sus espacios, chats grupales, conversaciones privadas, destacados y permisos. Ambas operaciones usan transacciones y la interfaz exige confirmar indicando el nombre del elemento y las consecuencias. No se borran instituciones ajenas ni cuentas de usuario. Los envíos de mensajes y las asignaciones se sincronizan con el borrado para no crear registros huérfanos.
+
+Ejecutar `npm run db:institutions` actualiza el campo heredado `group_chat_messages.groupCode` a 30 caracteres para que los nombres personalizados no impidan enviar mensajes. `npm run test:management` verifica edición, borrado, aislamiento entre instituciones, conservación de cuentas y reversión completa ante un error con datos temporales de MySQL.
+
+## Sesiones
 
 POST `/api/users/register` recibe `{name, email, password}` e inicia sesión. POST `/api/auth/login` acepta nombre o email y contraseña. GET `/api/users/profile` restaura el perfil; POST `/api/auth/logout` elimina la sesión.
 

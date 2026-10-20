@@ -7,6 +7,7 @@ function createMessageRouter(service) {
   router.get('/messages/:id', async (req, res) => res.json(await service.conversation(readSession(req), req.params.id)));
   router.post('/messages', async (req, res) => res.status(201).json(await service.send(readSession(req), req.body || {})));
   router.post('/messages/:id/replies', async (req, res) => res.status(201).json(await service.reply(readSession(req), req.params.id, req.body || {})));
+  router.delete('/messages/:id/messages/:messageId', async (req, res) => res.json(await service.deleteMessage(readSession(req), req.params.id, req.params.messageId)));
   router.post('/messages/:id/star', async (req, res) => res.json(await service.setStar(readSession(req), req.params.id, req.body || {})));
   return router;
 }

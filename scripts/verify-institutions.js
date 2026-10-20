@@ -138,6 +138,7 @@ async function verify() {
       await db.execute('DELETE FROM auth_sessions WHERE idUser = ?', [id]);
       await db.execute('DELETE FROM simulated_purchases WHERE idUser = ?', [id]);
       await db.execute('DELETE FROM users WHERE idUser = ? AND name = ?', [id, account.name]);
+      await db.execute('DELETE FROM institution_administrators WHERE idUser = ?', [id]);
     }
     for (const id of institutionIds) { await db.execute('DELETE FROM communication_spaces WHERE institutionId = ?', [id]); await db.execute('DELETE FROM institutions WHERE id = ?', [id]); }
     await db.end();

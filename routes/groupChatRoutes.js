@@ -6,6 +6,7 @@ function createGroupChatRouter(service) {
   router.post('/users/group', async (req, res) => res.json(await service.join(readSession(req), req.body || {})));
   router.get('/group-chat', async (req, res) => res.json(await service.history(readSession(req), req.query.spaceId)));
   router.post('/group-chat/messages', async (req, res) => res.status(201).json(await service.send(readSession(req), req.body || {})));
+  router.delete('/group-chat/messages/:id', async (req, res) => res.json(await service.deleteMessage(readSession(req), req.query.spaceId, req.params.id)));
   return router;
 }
 module.exports = { createGroupChatRouter };
