@@ -6,15 +6,30 @@ function participantAccess(id) {
   return `EXISTS (SELECT 1 FROM communication_spaces s WHERE s.institutionId = t.institutionId AND ${activeCoverage} AND (EXISTS (SELECT 1 FROM space_memberships member WHERE member.spaceId = s.id AND member.idUser = ${id}) OR EXISTS (SELECT 1 FROM space_administrators manager WHERE manager.spaceId = s.id AND manager.idUser = ${id})))`;
 }
 const participantsAllowed = `${participantAccess('t.senderId')} AND ${participantAccess('t.recipientId')}`;
-const threadQuery = `SELECT t.*, sender.name AS senderName, recipient.name AS recipientName FROM message_threads t JOIN users sender ON sender.idUser = t.senderId JOIN users recipient ON recipient.idUser = t.recipientId WHERE t.id = ? AND (t.senderId = ? OR t.recipientId = ?) AND ${participantsAllowed}`;
+function threadAccess(user) {
+  if (user.typeUser === 'superadmin') return {
+    sql: `((t.senderId = ? AND EXISTS (SELECT 1 FROM institution_administrators ia JOIN users admin ON admin.idUser = ia.idUser AND admin.typeUser = 'admin' AND admin.isActive = 1 WHERE ia.institutionId = t.institutionId AND ia.idUser = t.recipientId)) OR (t.recipientId = ? AND EXISTS (SELECT 1 FROM institution_administrators ia JOIN users admin ON admin.idUser = ia.idUser AND admin.typeUser = 'admin' AND admin.isActive = 1 WHERE ia.institutionId = t.institutionId AND ia.idUser = t.senderId)))`,
+    values: [user.idUser, user.idUser],
+  };
+  return {
+    sql: `((t.senderId = ? OR t.recipientId = ?) AND (${participantsAllowed} OR (EXISTS (SELECT 1 FROM institution_administrators ia WHERE ia.institutionId = t.institutionId AND ia.idUser = ?) AND EXISTS (SELECT 1 FROM users superadmin WHERE superadmin.typeUser = 'superadmin' AND (t.senderId = superadmin.idUser OR t.recipientId = superadmin.idUser)))))`,
+    values: [user.idUser, user.idUser, user.idUser],
+  };
+}
+function threadQuery(user, lock = false) {
+  const access = threadAccess(user);
+  return { sql: `SELECT t.*, sender.name AS senderName, sender.typeUser AS senderType, recipient.name AS recipientName, recipient.typeUser AS recipientType FROM message_threads t JOIN users sender ON sender.idUser = t.senderId JOIN users recipient ON recipient.idUser = t.recipientId WHERE t.id = ? AND ${access.sql}${lock ? ' FOR UPDATE' : ''}`, values: access.values };
+}
 function belongsToThread(user, thread) {
+  if (user.typeUser === 'superadmin') return Boolean(thread?.institutionId);
+  if (thread?.senderType === 'superadmin' || thread?.recipientType === 'superadmin') return true;
   return thread && user.spaces.some(space => space.institutionId === thread.institutionId && space.isActive);
 }
 
 function createMessageService(db, authService) {
   async function account(token) {
     const user = await authService.profile(token);
-    if (!user.hasAccess) throw fail(403, 'Necesitás acceso a un espacio habilitado por tu institución.');
+    if (!user.hasAccess && !['superadmin', 'admin'].includes(user.typeUser)) throw fail(403, 'Necesitás acceso a un espacio habilitado por tu institución.');
     return user;
   }
   function contentOf(body) {
@@ -29,17 +44,16 @@ function createMessageService(db, authService) {
   async function list(token, filter = 'all') {
     const user = await account(token);
     if (!['all', 'sent', 'received', 'starred'].includes(filter)) throw fail(400, 'El filtro de mensajes no es válido.');
-    const activeIds = [...new Set(user.spaces.filter(space => space.isActive).map(space => space.institutionId))];
-    const values = [user.idUser, user.idUser, user.idUser];
-    let condition = '';
+    const access = threadAccess(user);
+    const values = [];
     let messageKind = '';
-    if (filter === 'starred') condition = ' AND favorite.idUser IS NOT NULL';
     if (filter === 'sent' || filter === 'received') {
       messageKind = ` AND last.${filter === 'sent' ? 'senderId' : 'recipientId'} = ?`;
-      values.unshift(user.idUser);
+      values.push(user.idUser);
     }
-    values.push(...activeIds);
-    const [threads] = await db.execute(`SELECT t.id, t.spaceId, t.institutionId, t.subject, t.senderId, t.recipientId, sender.name AS senderName, recipient.name AS recipientName, m.content, m.senderId AS latestSenderId, m.sentAt, favorite.idUser IS NOT NULL AS isStarred FROM message_threads t JOIN users sender ON sender.idUser = t.senderId JOIN users recipient ON recipient.idUser = t.recipientId JOIN mesages m ON m.sequence = (SELECT MAX(last.sequence) FROM mesages last WHERE last.threadId = t.id${messageKind}) LEFT JOIN message_stars favorite ON favorite.threadId = t.id AND favorite.idUser = ? WHERE (t.senderId = ? OR t.recipientId = ?)${condition} AND t.institutionId IN (${activeIds.map(() => '?').join(',')}) AND ${participantsAllowed} ORDER BY m.sequence DESC`, values);
+    values.push(user.idUser, ...access.values);
+    const starredFilter = filter === 'starred' ? ' AND favorite.idUser IS NOT NULL' : '';
+    const [threads] = await db.execute(`SELECT t.id, t.spaceId, t.institutionId, institution.name AS institutionName, t.subject, t.senderId, t.recipientId, sender.name AS senderName, recipient.name AS recipientName, m.content, m.senderId AS latestSenderId, m.sentAt, favorite.idUser IS NOT NULL AS isStarred FROM message_threads t JOIN users sender ON sender.idUser = t.senderId JOIN users recipient ON recipient.idUser = t.recipientId JOIN institutions institution ON institution.id = t.institutionId JOIN mesages m ON m.sequence = (SELECT MAX(last.sequence) FROM mesages last WHERE last.threadId = t.id${messageKind}) LEFT JOIN message_stars favorite ON favorite.threadId = t.id AND favorite.idUser = ? WHERE ${access.sql}${starredFilter} ORDER BY m.sequence DESC`, values);
     return { threads: threads.map(thread => ({ ...thread, isStarred: Boolean(thread.isStarred) })) };
   }
 
@@ -50,7 +64,8 @@ function createMessageService(db, authService) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      const [threads] = await connection.execute(`${threadQuery} FOR UPDATE`, [id, user.idUser, user.idUser]);
+      const query = threadQuery(user, true);
+      const [threads] = await connection.execute(query.sql, [id, ...query.values]);
       if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
       if (body.starred) await connection.execute('INSERT IGNORE INTO message_stars (idUser, threadId) VALUES (?, ?)', [user.idUser, id]);
       else await connection.execute('DELETE FROM message_stars WHERE idUser = ? AND threadId = ?', [user.idUser, id]);
@@ -62,7 +77,8 @@ function createMessageService(db, authService) {
   async function conversation(token, id) {
     const user = await account(token);
     validId(id);
-    const [threads] = await db.execute(threadQuery, [id, user.idUser, user.idUser]);
+    const query = threadQuery(user);
+    const [threads] = await db.execute(query.sql, [id, ...query.values]);
     if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
     const [messages] = await db.execute('SELECT m.idMesage, m.senderId, m.recipientId, m.content, m.sentAt, u.name AS senderName FROM mesages m JOIN users u ON u.idUser = m.senderId WHERE m.threadId = ? ORDER BY m.sequence ASC', [id]);
     return { thread: threads[0], messages };
@@ -74,7 +90,8 @@ function createMessageService(db, authService) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      const [threads] = await connection.execute(`${threadQuery} FOR UPDATE`, [threadId, user.idUser, user.idUser]);
+      const query = threadQuery(user, true);
+      const [threads] = await connection.execute(query.sql, [threadId, ...query.values]);
       if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró el mensaje o no tenés permiso para eliminarlo.');
       const [messages] = await connection.execute('SELECT idMesage FROM mesages WHERE idMesage = ? AND threadId = ? AND senderId = ? FOR UPDATE', [messageId, threadId, user.idUser]);
       if (!messages[0]) throw fail(404, 'No se encontró el mensaje o no tenés permiso para eliminarlo.');
@@ -86,12 +103,33 @@ function createMessageService(db, authService) {
   }
   async function send(token, body) {
     const user = await account(token);
-    const space = selectActiveSpace(user, body.spaceId);
     const content = contentOf(body);
     const recipient = typeof body.recipient === 'string' ? body.recipient.trim() : '';
     const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
-    if (!recipient || recipient.length > 30) throw fail(400, 'Indicá el nombre de usuario o email del destinatario.');
+    if (!recipient || recipient.length > (user.typeUser === 'superadmin' ? 254 : 30)) throw fail(400, 'Indicá el nombre de usuario o email del destinatario.');
     if (!subject || subject.length > 120) throw fail(400, 'El asunto debe tener entre 1 y 120 caracteres.');
+    if (user.typeUser === 'superadmin') {
+      const institutionId = typeof body.institutionId === 'string' ? body.institutionId : '';
+      if (!/^[a-f0-9]{10}$/.test(institutionId)) throw fail(400, 'Elegí la institución del administrador.');
+      const [users] = await db.execute("SELECT admin.idUser, admin.name FROM users admin JOIN institution_administrators manager ON manager.idUser = admin.idUser WHERE manager.institutionId = ? AND admin.typeUser = 'admin' AND admin.isActive = 1 AND (admin.name = ? OR admin.email = ?)", [institutionId, recipient, recipient]);
+      if (users.length !== 1) throw fail(400, 'No se encontró un administrador activo de esa institución con ese usuario o email.');
+      if (users[0].idUser === user.idUser) throw fail(400, 'Elegí otra cuenta como destinataria.');
+      const id = randomBytes(5).toString('hex');
+      const connection = await db.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [institutions] = await connection.execute('SELECT id FROM institutions WHERE id = ? FOR UPDATE', [institutionId]);
+        if (!institutions[0]) throw fail(404, 'La institución ya no está disponible.');
+        const [administrators] = await connection.execute("SELECT admin.idUser, admin.name FROM users admin JOIN institution_administrators manager ON manager.idUser = admin.idUser WHERE manager.institutionId = ? AND admin.idUser = ? AND admin.typeUser = 'admin' AND admin.isActive = 1 FOR UPDATE", [institutionId, users[0].idUser]);
+        if (!administrators[0]) throw fail(404, 'El administrador ya no está disponible en esa institución.');
+        await connection.execute('INSERT INTO message_threads (id, spaceId, institutionId, subject, senderId, recipientId, createdAt) VALUES (?, NULL, ?, ?, ?, ?, UTC_TIMESTAMP(3))', [id, institutionId, subject, user.idUser, administrators[0].idUser]);
+        await insert(connection, id, user.idUser, administrators[0].idUser, administrators[0].name, content);
+        await connection.commit();
+        return { threadId: id };
+      } catch (err) { await connection.rollback(); throw err; }
+      finally { connection.release(); }
+    }
+    const space = selectActiveSpace(user, body.spaceId);
     const [users] = await db.execute('SELECT idUser, name FROM users WHERE name = ? OR email = ?', [recipient, recipient]);
     if (users.length !== 1) throw fail(400, 'No se encontró un usuario con ese nombre o email.');
     if (users[0].idUser === user.idUser) throw fail(400, 'Elegí otro usuario como destinatario.');
@@ -119,7 +157,8 @@ function createMessageService(db, authService) {
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      const [threads] = await connection.execute(`${threadQuery} FOR UPDATE`, [id, user.idUser, user.idUser]);
+      const query = threadQuery(user, true);
+      const [threads] = await connection.execute(query.sql, [id, ...query.values]);
       if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
       const thread = threads[0];
       const toSender = thread.recipientId === user.idUser;
