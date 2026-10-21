@@ -25,12 +25,25 @@ function createInstitutionService(db, auth) {
   async function dashboard(token) {
     await superuser(token);
     const [institutions] = await db.query('SELECT id, name FROM institutions ORDER BY name');
+    const [institutionPlans] = await db.query("SELECT payment.institutionId, payment.idUser AS payerId, payment.plan, payment.amount, payment.paidAt, payer.name AS payerName, payer.email AS payerEmail, payer.isActive AS payerIsActive FROM simulated_purchases payment LEFT JOIN users payer ON payer.idUser = payment.idUser WHERE payment.institutionId IS NOT NULL ORDER BY payment.paidAt DESC, payment.idUser");
     const [spaces] = await db.query('SELECT id, name, institutionId FROM communication_spaces ORDER BY name');
     const [administrators] = await db.query('SELECT manager.spaceId, u.idUser, u.name, u.email FROM space_administrators manager JOIN users u ON u.idUser = manager.idUser ORDER BY u.name');
     const [institutionAdministrators] = await db.query('SELECT manager.institutionId, u.idUser, u.name, u.email FROM institution_administrators manager JOIN users u ON u.idUser = manager.idUser ORDER BY u.name');
     const [accounts] = await db.query(`SELECT idUser, name, email, typeUser, isActive FROM users WHERE ${administratorRoleSql} ORDER BY name, idUser`);
     const adminAccounts = accounts.map(account => ({ ...account, typeUser: normalizeUserRole(account.typeUser), isActive: Boolean(account.isActive) }));
-    return { institutions, spaces, administrators, institutionAdministrators, adminAccounts };
+    const planByInstitution = new Map();
+    for (const payment of institutionPlans) {
+      if (!planByInstitution.has(payment.institutionId)) planByInstitution.set(payment.institutionId, {
+        plan: payment.plan,
+        amount: payment.amount == null ? null : Number(payment.amount),
+        paidAt: payment.paidAt,
+        payerId: payment.payerId,
+        payerName: payment.payerName,
+        payerEmail: payment.payerEmail,
+        payerIsActive: payment.payerIsActive == null ? null : Boolean(payment.payerIsActive),
+      });
+    }
+    return { institutions: institutions.map(institution => ({ ...institution, plan: planByInstitution.get(institution.id) || null })), spaces, administrators, institutionAdministrators, adminAccounts };
   }
   async function setAdministratorStatus(token, targetId, body) {
     await superuser(token);
