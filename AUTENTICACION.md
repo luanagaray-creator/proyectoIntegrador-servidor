@@ -4,7 +4,7 @@
 
 Thotem es el superadministrador. En `/platform` crea instituciones vacías y autoriza cuentas registradas como administradores institucionales. No elige cursos ni crea espacios predefinidos. El registro público siempre crea usuarios comunes y no acepta privilegios.
 
-El administrador institucional puede contratar un plan antes de tener espacios. Después, en `/admin-plan`, escribe el nombre de cada clase para crearla y agrega sus usuarios registrados. Small Plan: 200 USD, hasta 10 espacios y 250 usuarios por espacio; Medium Plan: 350 USD, hasta 20 espacios y 500 usuarios por espacio; Large Plan: 450 USD, hasta 30 espacios y 750 usuarios por espacio. Todos los espacios nuevos quedan cubiertos automáticamente. El servidor calcula importes y valida cupos. No se reciben tarjetas ni se hacen cobros reales; la duración del plan sigue pendiente de definición.
+El administrador institucional puede contratar un plan antes de tener espacios. Después, en `/admin-plan`, escribe el nombre de cada clase para crearla y agrega sus usuarios registrados. Small Plan: 250 usuarios en hasta 10 espacios; Medium Plan: 500 en hasta 20; Large Plan: 750 en hasta 30. El cupo de usuarios por espacio se calcula dividiendo el total del plan entre sus espacios máximos: 25 usuarios comunes por espacio en cada plan. El servidor calcula importes y valida cupos. No se reciben tarjetas ni se hacen cobros reales; moneda y duración del plan siguen pendientes de definición.
 
 Los usuarios comunes no ven planes y solo pueden tener un chat asignado. La API rechaza una segunda asignación y MySQL impone un índice único por usuario; repetir la asignación actual es válido. Para cambiar de curso se retira primero el acceso anterior. Para entrar necesitan una membresía explícita y cobertura pagada por un administrador que conserve el permiso sobre ese espacio. No pueden autoadmitirse seleccionando un curso. Los administradores pueden gestionar varios espacios autorizados por Thotem.
 
@@ -48,15 +48,15 @@ La mensajería privada requiere que ambos participantes tengan acceso activo a l
 
 ## Cupos y personalización
 
-Small Plan (250) permite crear hasta 3 espacios, Medium Plan (500) hasta 4 y Large Plan (750) hasta 6. Los límites se aplican a todos los espacios de la institución, no por administrador. Varios administradores comparten el cupo. La creación y los cambios de plan se serializan en MySQL para evitar superar el límite con solicitudes simultáneas.
+Small Plan (250 usuarios) permite crear hasta 10 espacios, Medium Plan (500) hasta 20 y Large Plan (750) hasta 30. Cada espacio admite la división del total de usuarios entre los espacios máximos del plan (25 usuarios comunes por espacio). Los límites de espacios se aplican a toda la institución, no por administrador. Varios administradores comparten el cupo. La creación y los cambios de plan se serializan en MySQL para evitar superar el límite con solicitudes simultáneas.
 
 Para bajar de plan hay que eliminar primero los espacios que excedan el nuevo cupo. Se conservan los espacios existentes de instalaciones anteriores: no se borran automáticamente. El formulario de creación indica cuántos espacios hay y cuántos lugares quedan disponibles.
 
 `institution_administrators` permite administrar instituciones vacías. `simulated_purchases.institutionId` vincula el plan con su institución. `npm run db:institutions` prepara esos datos y migra las asignaciones anteriores sin eliminar espacios. El plan se conserva al borrar el último espacio, permitiendo crear otro sin volver a pagar. Cancelarlo suspende el acceso sin borrar clases, usuarios ni mensajes. El comprobante es accesible antes de crear el primer espacio y lleva a Administración.
 
-`npm run test:space-creation` prueba institución vacía → administrador → pago → creación con nombres propios, cupos 3/4/6, altas simultáneas, borrado y recreación, cancelación y aislamiento institucional, usando datos temporales.
+`npm run test:space-creation` prueba institución vacía → administrador → pago → creación con nombres propios, cupos 10/20/30, altas simultáneas, borrado y recreación, cancelación y aislamiento institucional, usando datos temporales.
 
-PATCH `/api/admin/spaces/:spaceId` recibe `{name}` y permite renombrar un espacio administrado con entre 1 y 30 caracteres, sin nombres repetidos dentro de la institución. Cada espacio admite 250, 500 o 750 usuarios comunes según el plan; los administradores no ocupan esos lugares. GET `/api/admin/spaces/:spaceId/members` informa `capacity` y `available`. Las altas simultáneas se serializan para no superar el cupo de miembros del plan y repetir la asignación actual no consume un cupo adicional.
+PATCH `/api/admin/spaces/:spaceId` recibe `{name}` y permite renombrar un espacio administrado con entre 1 y 30 caracteres, sin nombres repetidos dentro de la institución. Cada espacio admite hasta 25 usuarios comunes, calculados según el plan activo; los administradores no ocupan esos lugares. GET `/api/admin/spaces/:spaceId/members` informa `capacity` y `available`. Las altas simultáneas se serializan para no superar el cupo vigente y repetir la asignación actual no consume un cupo adicional.
 
 DELETE `/api/admin/plan` cancela la compra del administrador y retira su cobertura, conservando institución, espacios, miembros, mensajes y rol `admin`. Asignar permisos institucionales convierte la cuenta en `admin` y retira su membresía de usuario común. Cancelar un plan no modifica ese rol. La interfaz muestra “Plan Actual” cuando hay una compra y permite cancelarla desde Administración.
 

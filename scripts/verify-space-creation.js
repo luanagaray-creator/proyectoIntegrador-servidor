@@ -59,13 +59,14 @@ async function verify() {
     assert.equal((await create(admin, 'a'.repeat(31))).status, 400);
     const first = await create(admin, 'Desarrollo web');
     assert.equal(first.status, 201, JSON.stringify(first.data));
-    assert.equal(first.data.capacity, 250);
+    assert.equal(first.data.capacity, 25);
     assert.equal((await create(colleague, 'Desarrollo web')).status, 409);
     assert.equal((await create(colleague, 'Diseño')).status, 201);
     for (let index = 2; index < 9; index++) assert.equal((await create(admin, `Clase inicial ${index}`)).status, 201);
     const competing = await Promise.all([create(admin, 'Programación'), create(colleague, 'Matemática')]);
     assert.deepEqual(competing.map(result => result.status).sort(), [201, 409]);
-    assert.equal((await auth.profile(admin.token)).managedInstitutions[0].spaceCount, 10);
+    assert.equal((await auth.profile(admin.token)).managedInstitutions[0].spaceCount, 3);
+    while ((await auth.profile(admin.token)).managedInstitutions[0].spaceCount < 10) assert.equal((await create(admin, `Clase ${randomBytes(3).toString('hex')}`)).status, 201);
     assert.equal((await create(admin, 'No cabe')).status, 409);
     await institutions.grantMember(admin.token, first.data.id, { user: student.name });
     assert.equal((await auth.profile(student.token)).hasAccess, true);
@@ -81,7 +82,7 @@ async function verify() {
     assert.equal((await request('/payments/simulate', admin, { institutionId, plan: 'Small Plan', method: 'Visa' })).status, 409);
     assert.equal((await request('/admin/plan', colleague, { institutionId }, 'DELETE')).status, 200);
     assert.equal((await auth.profile(admin.token)).purchase, null);
-    assert.equal((await auth.profile(admin.token)).managedSpaces.length, 6);
+    assert.equal((await auth.profile(admin.token)).managedSpaces.length, 30);
     assert.equal((await create(admin, 'Sin cobertura')).status, 409);
     assert.equal((await request('/payments/simulate', admin, { institutionId, plan: 'Large Plan', method: 'Visa' })).status, 200);
     for (const space of (await auth.profile(admin.token)).managedSpaces) assert.equal((await request(`/admin/spaces/${space.id}`, admin, undefined, 'DELETE')).status, 200);
