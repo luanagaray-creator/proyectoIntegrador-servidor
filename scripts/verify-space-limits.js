@@ -17,7 +17,7 @@ async function verify() {
     assert.equal(info.name.toLowerCase(), 'proyectointegrador');
     const auth = createAuthService(db);
     const institutions = createInstitutionService(db, auth);
-    for (let index = 0; index < 34; index++) {
+    for (let index = 0; index < 254; index++) {
       const suffix = randomBytes(5).toString('hex');
       const name = `lim_${suffix}`;
       const registered = await auth.register({ name, email: `${suffix}@prueba.local`, password: randomBytes(16).toString('hex') });
@@ -27,6 +27,7 @@ async function verify() {
     await db.execute("UPDATE users SET typeUser = 'superadmin' WHERE idUser = ?", [root.user.idUser]);
     const created = await institutions.createInstitution(root.token, { name: `Límites ${randomBytes(5).toString('hex')}`, groupCodes: require('../config/groups.json') });
     institutionId = created.id;
+    for (let index = 6; index < 30; index++) await db.execute('INSERT INTO communication_spaces (id, institutionId, name) VALUES (?, ?, ?)', [randomBytes(5).toString('hex'), institutionId, `Clase ${index}`]);
     const [spaces] = await db.execute('SELECT id FROM communication_spaces WHERE institutionId = ? ORDER BY id', [institutionId]);
     const ids = spaces.map(space => space.id);
     await institutions.grantAdministrator(root.token, { user: admin.name, spaceIds: ids });
@@ -51,19 +52,19 @@ async function verify() {
       const paid = await request('/payments/simulate', admin, { plan, method: 'Visa', spaceIds: ids.slice(0, limit) });
       assert.equal(paid.status, 200, JSON.stringify(paid.data));
       assert.equal(paid.data.user.spaces.filter(space => space.isActive).length, limit);
-      if (limit < 6) {
+      if (limit < 30) {
         assert.equal((await request('/payments/simulate', admin, { plan, method: 'Visa', spaceIds: ids.slice(0, limit + 1) })).status, 400);
         assert.equal((await request('/admin/plan/groups', admin, { spaceIds: ids.slice(0, limit + 1) })).status, 400);
       }
     }
-    await db.execute('UPDATE simulated_purchases SET plan = ?, amount = ? WHERE idUser = ?', ['Medium Plan', 500, admin.user.idUser]);
+    await db.execute('UPDATE simulated_purchases SET plan = ?, amount = ? WHERE idUser = ?', ['Medium Plan', 350, admin.user.idUser]);
     assert.equal((await auth.profile(admin.token)).hasAccess, false);
-    assert.equal((await request('/admin/plan/groups', admin, { spaceIds: ids.slice(0, 4) })).status, 200);
-    assert.equal((await auth.profile(admin.token)).spaces.filter(space => space.isActive).length, 4);
-    const downgraded = await request('/payments/simulate', admin, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(0, 3) });
+    assert.equal((await request('/admin/plan/groups', admin, { spaceIds: ids.slice(0, 20) })).status, 200);
+    assert.equal((await auth.profile(admin.token)).spaces.filter(space => space.isActive).length, 20);
+    const downgraded = await request('/payments/simulate', admin, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(0, 10) });
     assert.equal(downgraded.status, 200);
-    assert.equal(downgraded.data.user.spaces.filter(space => space.isActive).length, 3);
-    assert.equal((await request('/payments/simulate', other, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(3) })).status, 409);
+    assert.equal(downgraded.data.user.spaces.filter(space => space.isActive).length, 10);
+    assert.equal((await request('/payments/simulate', other, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(10, 20) })).status, 409);
     assert.equal((await request(`/admin/spaces/${ids[0]}`, students[0], { name: 'Sin permiso' }, 'PATCH')).status, 403);
     assert.equal((await request(`/admin/spaces/${ids[0]}`, admin, { name: ' ' }, 'PATCH')).status, 400);
     assert.equal((await request(`/admin/spaces/${ids[0]}`, admin, { name: 'a'.repeat(31) }, 'PATCH')).status, 400);
@@ -71,18 +72,18 @@ async function verify() {
     assert.equal((await request(`/admin/spaces/${ids[1]}`, admin, { name: 'Clase personalizada' }, 'PATCH')).status, 409);
     assert.equal((await auth.profile(admin.token)).managedSpaces.find(space => space.id === ids[0]).name, 'Clase personalizada');
 
-    for (const student of students.slice(0, 29)) await institutions.grantMember(admin.token, ids[0], { user: student.name });
-    const admission = await Promise.all(students.slice(29).map(student => request(`/admin/spaces/${ids[0]}/members`, admin, { user: student.name })));
+    for (const student of students.slice(0, 249)) await institutions.grantMember(admin.token, ids[0], { user: student.name });
+    const admission = await Promise.all(students.slice(249).map(student => request(`/admin/spaces/${ids[0]}/members`, admin, { user: student.name })));
     assert.deepEqual(admission.map(result => result.status).sort(), [200, 409]);
     const members = await institutions.members(admin.token, ids[0]);
-    assert.equal(members.members.length, 30);
-    assert.equal(members.capacity, 30);
+    assert.equal(members.members.length, 250);
+    assert.equal(members.capacity, 250);
     assert.equal(members.available, 0);
     await institutions.grantMember(admin.token, ids[0], { user: students[0].name });
     await institutions.revokeMember(admin.token, ids[0], students[0].user.idUser);
-    const waiting = students.slice(29)[admission.findIndex(result => result.status === 409)];
+    const waiting = students.slice(249)[admission.findIndex(result => result.status === 409)];
     await institutions.grantMember(admin.token, ids[0], { user: waiting.name });
-    assert.equal((await institutions.members(admin.token, ids[0])).members.length, 30);
+    assert.equal((await institutions.members(admin.token, ids[0])).members.length, 250);
 
     assert.equal((await request('/admin/plan', students[0], undefined, 'DELETE')).status, 403);
     assert.equal((await request('/admin/plan', admin, undefined, 'DELETE')).status, 200);
@@ -91,10 +92,10 @@ async function verify() {
     assert.equal(canceled.purchase, null);
     assert.equal(canceled.typeUser, 'admin');
     assert.equal(canceled.hasAccess, false);
-    assert.equal((await institutions.members(admin.token, ids[0])).members.length, 30);
-    const competing = await Promise.all([admin, other].map((account, index) => request('/payments/simulate', account, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(index * 3, index * 3 + 3) })));
+    assert.equal((await institutions.members(admin.token, ids[0])).members.length, 250);
+    const competing = await Promise.all([admin, other].map((account, index) => request('/payments/simulate', account, { plan: 'Small Plan', method: 'Visa', spaceIds: ids.slice(index * 10, index * 10 + 10) })));
     assert.deepEqual(competing.map(result => result.status).sort(), [200, 409]);
-    console.log('Verificado: límites 3/4/6, cambio de plan, nombres, 30 usuarios con concurrencia, cancelación y rol admin persistente.');
+    console.log('Verificado: límites 10/20/30, cambio de plan, nombres, 250 usuarios con concurrencia, cancelación y rol admin persistente.');
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     for (const account of accounts) {

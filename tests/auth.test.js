@@ -97,7 +97,7 @@ test('solo un admin paga, el plan persiste y habilita grupos sin pagos individua
     assert.equal(paid.data.user.purchase.plan, plan);
     assert.equal(paid.data.user.purchase.method, method);
     assert.equal(paid.data.user.purchase.simulated, true);
-    assert.equal(paid.data.user.purchase.amount, { 'Small Plan': 250, 'Medium Plan': 500, 'Large Plan': 750 }[plan]);
+    assert.equal(paid.data.user.purchase.amount, { 'Small Plan': 200, 'Medium Plan': 350, 'Large Plan': 450 }[plan]);
   }
   await request('/auth/logout', {}, cookie);
   assert.equal((await request('/payments/simulate', purchase, cookie)).status, 401);

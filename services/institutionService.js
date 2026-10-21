@@ -1,6 +1,7 @@
 const { randomBytes } = require('node:crypto');
 const groups = require('../config/groups.json');
-const { MEMBER_CAPACITY } = require('./planCapacity');
+const { memberCapacity } = require('./planCapacity');
+const planMemberLimits = require('../config/planMemberLimits.json');
 const planLimits = require('../config/planLimits.json');
 const { normalizeUserRole, administratorRoleSql } = require('./userRole');
 const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -154,7 +155,7 @@ function createInstitutionService(db, auth) {
       await connection.execute('INSERT INTO space_administrators (spaceId, idUser) SELECT ?, idUser FROM institution_administrators WHERE institutionId = ?', [id, body.institutionId]);
       await connection.execute('INSERT INTO admin_plan_spaces (adminId, spaceId) VALUES (?, ?)', [purchase.idUser, id]);
       await connection.commit();
-      return { id, message: 'Espacio creado.', capacity: MEMBER_CAPACITY };
+      return { id, message: 'Espacio creado.', capacity: planMemberLimits[purchase.plan] };
     } catch (err) {
       await connection.rollback();
       if (err.code === 'ER_DUP_ENTRY') throw fail(409, 'Ya existe un espacio con ese nombre en la institución.');
@@ -196,7 +197,8 @@ function createInstitutionService(db, auth) {
   async function members(token, spaceId) {
     await manager(token, spaceId);
     const [members] = await db.execute('SELECT u.idUser, u.name, u.email FROM space_memberships member JOIN users u ON u.idUser = member.idUser WHERE member.spaceId = ? ORDER BY u.name', [spaceId]);
-    return { members, capacity: MEMBER_CAPACITY, available: Math.max(0, MEMBER_CAPACITY - members.length) };
+    const capacity = await memberCapacity(db, spaceId);
+    return { members, capacity, available: Math.max(0, capacity - members.length) };
   }
   async function renameSpace(token, spaceId, body) {
     const user = await auth.profile(token);
@@ -287,7 +289,8 @@ function createInstitutionService(db, auth) {
       const [permissions] = await connection.execute('SELECT spaceId FROM space_administrators WHERE spaceId = ? AND idUser = ? FOR UPDATE', [spaceId, user.idUser]);
       if (!permissions[0]) throw fail(403, 'El permiso para administrar ese espacio fue retirado.');
       const [occupants] = await connection.execute('SELECT idUser FROM space_memberships WHERE spaceId = ? FOR UPDATE', [spaceId]);
-      if (!occupants.some(member => member.idUser === target.idUser) && occupants.length >= MEMBER_CAPACITY) throw fail(409, `El espacio alcanzó el máximo de ${MEMBER_CAPACITY} usuarios.`);
+      const capacity = await memberCapacity(connection, spaceId);
+      if (!occupants.some(member => member.idUser === target.idUser) && occupants.length >= capacity) throw fail(409, `El espacio alcanzó el máximo de ${capacity} usuarios.`);
       await connection.execute('INSERT IGNORE INTO space_memberships (spaceId, idUser, grantedBy) VALUES (?, ?, ?)', [spaceId, target.idUser, user.idUser]);
       await connection.commit();
       return { message: 'Usuario habilitado en el espacio.' };

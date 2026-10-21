@@ -1,6 +1,11 @@
 const planLimits = require('../config/planLimits.json');
 const planCapacitySql = `CASE payment.plan ${Object.entries(planLimits).map(([plan, limit]) => `WHEN '${plan}' THEN ${limit}`).join(' ')} ELSE 0 END`;
-const MEMBER_CAPACITY = 30;
+const planMemberLimits = require('../config/planMemberLimits.json');
+
+async function memberCapacity(connection, spaceId) {
+  const [coverage] = await connection.execute(`SELECT payment.plan FROM communication_spaces s JOIN admin_plan_spaces covered ON covered.spaceId = s.id JOIN simulated_purchases payment ON payment.idUser = covered.adminId JOIN space_administrators manager ON manager.spaceId = s.id AND manager.idUser = covered.adminId JOIN users payer ON payer.idUser = covered.adminId AND payer.typeUser = 'admin' WHERE s.id = ? AND (SELECT COUNT(*) FROM admin_plan_spaces assigned WHERE assigned.adminId = covered.adminId) <= ${planCapacitySql}`, [spaceId]);
+  return Math.max(0, ...coverage.map(row => planMemberLimits[row.plan] || 0));
+}
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
 async function lockInstitutions(connection, adminId) {
@@ -20,4 +25,4 @@ async function validateCoverage(connection, adminId, spaceIds, plan) {
   if (total > capacity) throw fail(409, `La institución puede tener hasta ${capacity} espacios activos con sus planes actuales. Elegí menos espacios o contratá un plan mayor.`);
 }
 
-module.exports = { MEMBER_CAPACITY, lockInstitutions, validateCoverage, planCapacitySql };
+module.exports = { memberCapacity, lockInstitutions, validateCoverage, planCapacitySql };
