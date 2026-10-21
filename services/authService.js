@@ -7,6 +7,7 @@ const groups = require('../config/groups.json');
 const { loadSpaceAccess } = require('./spaceAccess');
 const { lockInstitutions, validateCoverage } = require('./planCapacity');
 const planLimits = require('../config/planLimits.json');
+const { normalizeUserRole } = require('./userRole');
 
 function error(status, message) {
   return Object.assign(new Error(message), { status });
@@ -40,7 +41,8 @@ const tokenHash = token => createHash('sha256').update(token).digest('hex');
 
 function createAuthService(db) {
   async function withPurchase(user) {
-    return { ...publicUser(user), ...await loadSpaceAccess(db, user) };
+    const account = { ...user, typeUser: normalizeUserRole(user.typeUser) };
+    return { ...publicUser(account), ...await loadSpaceAccess(db, account) };
   }
 
   function validateSpaces(value, user) {

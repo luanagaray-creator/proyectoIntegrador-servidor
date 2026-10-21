@@ -2,6 +2,7 @@ const { randomBytes } = require('node:crypto');
 const groups = require('../config/groups.json');
 const { memberCapacity, capacityForSpace } = require('./planCapacity');
 const planLimits = require('../config/planLimits.json');
+const { normalizeUserRole, administratorRoleSql } = require('./userRole');
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const idOf = () => randomBytes(5).toString('hex');
 function createInstitutionService(db, auth) {
@@ -28,8 +29,8 @@ function createInstitutionService(db, auth) {
     const [spaces] = await db.query('SELECT id, name, institutionId FROM communication_spaces ORDER BY name');
     const [administrators] = await db.query('SELECT manager.spaceId, u.idUser, u.name, u.email FROM space_administrators manager JOIN users u ON u.idUser = manager.idUser ORDER BY u.name');
     const [institutionAdministrators] = await db.query('SELECT manager.institutionId, u.idUser, u.name, u.email FROM institution_administrators manager JOIN users u ON u.idUser = manager.idUser ORDER BY u.name');
-    const [accounts] = await db.query("SELECT idUser, name, email, typeUser, isActive FROM users WHERE typeUser = 'admin' ORDER BY name, idUser");
-    const adminAccounts = accounts.map(account => ({ ...account, isActive: Boolean(account.isActive) }));
+    const [accounts] = await db.query(`SELECT idUser, name, email, typeUser, isActive FROM users WHERE ${administratorRoleSql} ORDER BY name, idUser`);
+    const adminAccounts = accounts.map(account => ({ ...account, typeUser: normalizeUserRole(account.typeUser), isActive: Boolean(account.isActive) }));
     const planByInstitution = new Map();
     for (const payment of institutionPlans) {
       if (!planByInstitution.has(payment.institutionId)) planByInstitution.set(payment.institutionId, {
@@ -52,7 +53,7 @@ function createInstitutionService(db, auth) {
       await connection.beginTransaction();
       const [accounts] = await connection.execute('SELECT idUser, typeUser FROM users WHERE idUser = ? FOR UPDATE', [targetId]);
       if (!accounts[0]) throw fail(404, 'No se encontró el administrador.');
-      if (accounts[0].typeUser !== 'admin') throw fail(400, 'Solo se puede cambiar el estado de una cuenta administradora institucional.');
+      if (normalizeUserRole(accounts[0].typeUser) !== 'admin') throw fail(400, 'Solo se puede cambiar el estado de una cuenta administradora institucional.');
       await connection.execute('UPDATE users SET isActive = ? WHERE idUser = ?', [body.isActive ? 1 : 0, targetId]);
       if (!body.isActive) await connection.execute('DELETE FROM auth_sessions WHERE idUser = ?', [targetId]);
       await connection.commit();
@@ -96,14 +97,18 @@ function createInstitutionService(db, auth) {
         if (typeof id !== 'string' || !/^[a-f0-9]{10}$/.test(id)) throw fail(400, 'El espacio no es válido.');
         const [spaces] = await connection.execute('SELECT id FROM communication_spaces WHERE id = ? FOR UPDATE', [id]);
         if (!spaces[0]) throw fail(404, 'No se encontró uno de los espacios.');
-        await connection.execute('INSERT IGNORE INTO space_administrators (spaceId, idUser) VALUES (?, ?)', [id, target.idUser]);
+        await connection.execute('INSERT INTO space_administrators (spaceId, idUser) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM space_administrators WHERE spaceId = ? AND idUser = ?)', [id, target.idUser, id, target.idUser]);
       }
-      await connection.execute('INSERT IGNORE INTO institution_administrators (institutionId, idUser) SELECT DISTINCT s.institutionId, ? FROM communication_spaces s JOIN space_administrators manager ON manager.spaceId = s.id WHERE manager.idUser = ?', [target.idUser, target.idUser]);
+      await connection.execute('INSERT INTO institution_administrators (institutionId, idUser) SELECT DISTINCT s.institutionId, ? FROM communication_spaces s JOIN space_administrators manager ON manager.spaceId = s.id WHERE manager.idUser = ? AND NOT EXISTS (SELECT 1 FROM institution_administrators assigned WHERE assigned.institutionId = s.institutionId AND assigned.idUser = ?)', [target.idUser, target.idUser, target.idUser]);
       await connection.execute("UPDATE users SET typeUser = 'admin' WHERE idUser = ?", [target.idUser]);
       await connection.execute('DELETE FROM space_memberships WHERE idUser = ?', [target.idUser]);
       await connection.commit();
       return { message: 'Permisos de administración asignados.' };
-    } catch (err) { await connection.rollback(); throw err; }
+    } catch (err) {
+      await connection.rollback();
+      if (err.code === 'ER_DUP_ENTRY') throw fail(409, 'La base de datos conserva una restricción antigua de administradores. Ejecutá la migración db:institutions.');
+      throw err;
+    }
     finally { connection.release(); }
   }
   async function grantInstitutionAdministrator(target, institutionId) {
@@ -114,13 +119,17 @@ function createInstitutionService(db, auth) {
       if (!institutions[0]) throw fail(404, 'No se encontró la institución.');
       const [accounts] = await connection.execute('SELECT typeUser FROM users WHERE idUser = ? FOR UPDATE', [target.idUser]);
       if (!accounts[0] || accounts[0].typeUser === 'superadmin') throw fail(400, 'Elegí una cuenta institucional.');
-      await connection.execute('INSERT IGNORE INTO institution_administrators (institutionId, idUser) VALUES (?, ?)', [institutionId, target.idUser]);
-      await connection.execute('INSERT IGNORE INTO space_administrators (spaceId, idUser) SELECT id, ? FROM communication_spaces WHERE institutionId = ?', [target.idUser, institutionId]);
+      await connection.execute('INSERT INTO institution_administrators (institutionId, idUser) SELECT ?, ? WHERE NOT EXISTS (SELECT 1 FROM institution_administrators WHERE institutionId = ? AND idUser = ?)', [institutionId, target.idUser, institutionId, target.idUser]);
+      await connection.execute('INSERT INTO space_administrators (spaceId, idUser) SELECT s.id, ? FROM communication_spaces s WHERE s.institutionId = ? AND NOT EXISTS (SELECT 1 FROM space_administrators assigned WHERE assigned.spaceId = s.id AND assigned.idUser = ?)', [target.idUser, institutionId, target.idUser]);
       await connection.execute("UPDATE users SET typeUser = 'admin' WHERE idUser = ?", [target.idUser]);
       await connection.execute('DELETE FROM space_memberships WHERE idUser = ?', [target.idUser]);
       await connection.commit();
       return { message: 'Administrador de la institución autorizado.' };
-    } catch (err) { await connection.rollback(); throw err; }
+    } catch (err) {
+      await connection.rollback();
+      if (err.code === 'ER_DUP_ENTRY') throw fail(409, 'La base de datos conserva una restricción antigua de administradores. Ejecutá la migración db:institutions.');
+      throw err;
+    }
     finally { connection.release(); }
   }
   async function createSpace(token, body) {

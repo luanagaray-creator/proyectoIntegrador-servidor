@@ -62,6 +62,7 @@ async function verify() {
     assert.equal(first.data.capacity, 25);
     assert.equal((await create(colleague, 'Desarrollo web')).status, 409);
     assert.equal((await create(colleague, 'Diseño')).status, 201);
+    for (let index = 2; index < 9; index++) assert.equal((await create(admin, `Clase inicial ${index}`)).status, 201);
     const competing = await Promise.all([create(admin, 'Programación'), create(colleague, 'Matemática')]);
     assert.deepEqual(competing.map(result => result.status).sort(), [201, 409]);
     assert.equal((await auth.profile(admin.token)).managedInstitutions[0].spaceCount, 3);

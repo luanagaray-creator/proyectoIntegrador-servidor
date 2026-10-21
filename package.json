@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "node --test tests/auth.test.js tests/mail.test.js tests/password-reset-mail.test.js",
+    "test": "node --test tests/auth.test.js tests/mail.test.js tests/password-reset-mail.test.js tests/plan-capacity.test.js",
     "test:limits": "node scripts/verify-space-limits.js",
     "test:management": "node scripts/verify-institution-management.js",
     "test:space-creation": "node scripts/verify-space-creation.js",

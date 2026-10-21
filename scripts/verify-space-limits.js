@@ -17,7 +17,7 @@ async function verify() {
     assert.equal(info.name.toLowerCase(), 'proyectointegrador');
     const auth = createAuthService(db);
     const institutions = createInstitutionService(db, auth);
-    for (let index = 0; index < 34; index++) {
+    for (let index = 0; index < 254; index++) {
       const suffix = randomBytes(5).toString('hex');
       const name = `lim_${suffix}`;
       const registered = await auth.register({ name, email: `${suffix}@prueba.local`, password: randomBytes(16).toString('hex') });
@@ -27,6 +27,7 @@ async function verify() {
     await db.execute("UPDATE users SET typeUser = 'superadmin' WHERE idUser = ?", [root.user.idUser]);
     const created = await institutions.createInstitution(root.token, { name: `Límites ${randomBytes(5).toString('hex')}`, groupCodes: require('../config/groups.json') });
     institutionId = created.id;
+    for (let index = 6; index < 30; index++) await db.execute('INSERT INTO communication_spaces (id, institutionId, name) VALUES (?, ?, ?)', [randomBytes(5).toString('hex'), institutionId, `Clase ${index}`]);
     const [spaces] = await db.execute('SELECT id FROM communication_spaces WHERE institutionId = ? ORDER BY id', [institutionId]);
     const ids = spaces.map(space => space.id);
     await institutions.grantAdministrator(root.token, { user: admin.name, spaceIds: ids });
