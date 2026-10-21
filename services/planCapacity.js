@@ -1,7 +1,18 @@
 const planLimits = require('../config/planLimits.json');
+const planUsers = require('../config/plans.json');
 const planCapacitySql = `CASE payment.plan ${Object.entries(planLimits).map(([plan, limit]) => `WHEN '${plan}' THEN ${limit}`).join(' ')} ELSE 0 END`;
-const MEMBER_CAPACITY = 30;
 const fail = (status, message) => Object.assign(new Error(message), { status });
+
+function memberCapacity(plan) {
+  const spaces = planLimits[plan] || 0;
+  const totalUsers = planUsers[plan] || 0;
+  return spaces > 0 ? Math.floor(totalUsers / spaces) : 0;
+}
+
+async function capacityForSpace(db, spaceId) {
+  const [rows] = await db.execute(`SELECT payment.plan FROM admin_plan_spaces covered JOIN simulated_purchases payment ON payment.idUser = covered.adminId JOIN space_administrators manager ON manager.spaceId = covered.spaceId AND manager.idUser = covered.adminId JOIN users payer ON payer.idUser = covered.adminId AND payer.typeUser = 'admin' WHERE covered.spaceId = ? AND (SELECT COUNT(*) FROM admin_plan_spaces assigned WHERE assigned.adminId = covered.adminId) <= ${planCapacitySql} ORDER BY payment.amount DESC, payment.paidAt DESC, payment.idUser LIMIT 1`, [spaceId]);
+  return memberCapacity(rows[0]?.plan);
+}
 
 async function lockInstitutions(connection, adminId) {
   await connection.execute('SELECT i.id FROM institutions i WHERE EXISTS (SELECT 1 FROM communication_spaces s JOIN space_administrators manager ON manager.spaceId = s.id WHERE s.institutionId = i.id AND manager.idUser = ?) OR EXISTS (SELECT 1 FROM communication_spaces s JOIN admin_plan_spaces covered ON covered.spaceId = s.id WHERE s.institutionId = i.id AND covered.adminId = ?) ORDER BY i.id FOR UPDATE', [adminId, adminId]);
@@ -20,4 +31,4 @@ async function validateCoverage(connection, adminId, spaceIds, plan) {
   if (total > capacity) throw fail(409, `La institución puede tener hasta ${capacity} espacios activos con sus planes actuales. Elegí menos espacios o contratá un plan mayor.`);
 }
 
-module.exports = { MEMBER_CAPACITY, lockInstitutions, validateCoverage, planCapacitySql };
+module.exports = { memberCapacity, capacityForSpace, lockInstitutions, validateCoverage, planCapacitySql };
