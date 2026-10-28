@@ -101,6 +101,23 @@ function createMessageService(db, authService) {
     } catch (err) { await connection.rollback(); throw err; }
     finally { connection.release(); }
   }
+  async function deleteConversation(token, id) {
+    const user = await account(token);
+    validId(id);
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      const query = threadQuery(user, true);
+      const [threads] = await connection.execute(query.sql, [id, ...query.values]);
+      if (!belongsToThread(user, threads[0])) throw fail(404, 'No se encontró la conversación.');
+      await connection.execute('DELETE FROM message_stars WHERE threadId = ?', [id]);
+      await connection.execute('DELETE FROM mesages WHERE threadId = ?', [id]);
+      await connection.execute('DELETE FROM message_threads WHERE id = ?', [id]);
+      await connection.commit();
+      return { threadId: id, message: 'Conversación eliminada.' };
+    } catch (err) { await connection.rollback(); throw err; }
+    finally { connection.release(); }
+  }
   async function send(token, body) {
     const user = await account(token);
     const content = contentOf(body);
@@ -168,6 +185,6 @@ function createMessageService(db, authService) {
     } catch (err) { await connection.rollback(); throw err; }
     finally { connection.release(); }
   }
-  return { list, conversation, send, reply, setStar, deleteMessage };
+  return { list, conversation, send, reply, setStar, deleteMessage, deleteConversation };
 }
 module.exports = { createMessageService };
